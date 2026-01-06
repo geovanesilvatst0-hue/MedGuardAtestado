@@ -5,20 +5,11 @@ import { Employee, MedicalCertificate, User, UserRole, AuditLog } from '../types
 export const db = {
   // Verificação de saúde da conexão
   checkConnection: async (): Promise<boolean> => {
-    if (!isConfigured) {
-      console.warn("❌ MedGuard: Supabase não está configurado.");
-      return false;
-    }
-
+    if (!isConfigured) return false;
     try {
       const { error } = await supabase.from('profiles').select('id').limit(1);
-      if (error) {
-        console.error("❌ Erro de banco de dados:", error.message);
-        return false;
-      }
-      return true;
-    } catch (err: any) {
-      console.error("❌ Erro inesperado na conexão:", err);
+      return !error;
+    } catch (err) {
       return false;
     }
   },
@@ -46,27 +37,14 @@ export const db = {
 
   getUsers: async (): Promise<User[]> => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('name');
+      const { data, error } = await supabase.from('profiles').select('*').order('name');
       if (error) throw error;
-      return data.map(u => ({
-        ...u,
-        createdAt: u.created_at,
-        lastLogin: u.last_login
-      })) as User[];
-    } catch (e) {
-      return [];
-    }
+      return data.map(u => ({ ...u, createdAt: u.created_at, lastLogin: u.last_login })) as User[];
+    } catch (e) { return []; }
   },
 
   saveUser: async (user: Partial<User>) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(user)
-      .eq('id', user.id)
-      .select();
+    const { data, error } = await supabase.from('profiles').update(user).eq('id', user.id).select();
     if (error) throw error;
     return data?.[0] as User;
   },
@@ -76,7 +54,7 @@ export const db = {
     if (!isConfigured) return;
     try {
       await supabase.from('audit_logs').insert([{
-        actor_id: log.userId === 'SYSTEM' ? null : log.userId,
+        actor_id: log.userId === 'demo-user' ? null : log.userId,
         action: log.action,
         details: log.details,
         entity: 'system'
@@ -86,60 +64,30 @@ export const db = {
 
   getLogs: async (): Promise<AuditLog[]> => {
     try {
-      const { data, error } = await supabase
-        .from('audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
+      const { data, error } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50);
       if (error) return [];
-      return data.map(d => ({
-        id: d.id,
-        userId: d.actor_id || 'SYSTEM',
-        userName: 'Usuário',
-        action: d.action,
-        details: d.details,
-        timestamp: d.created_at
-      }));
-    } catch (e) {
-      return [];
-    }
+      return data.map(d => ({ id: d.id, userId: d.actor_id || 'SYSTEM', userName: 'Admin', action: d.action, details: d.details, timestamp: d.created_at }));
+    } catch (e) { return []; }
   },
 
   // Funcionários
   getEmployees: async (): Promise<Employee[]> => {
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*')
-        .order('name');
+      const { data, error } = await supabase.from('employees').select('*').order('name');
       if (error) throw error;
-      return data.map(e => ({
-        ...e,
-        createdAt: e.created_at
-      })) as Employee[];
-    } catch (e: any) {
-      return [];
-    }
+      return data.map(e => ({ ...e, createdAt: e.created_at })) as Employee[];
+    } catch (e) { return []; }
   },
 
   saveEmployee: async (employee: Partial<Employee>) => {
-    const payload = {
-      name: employee.name,
-      cpf: employee.cpf,
-      registration: employee.registration,
-      department: employee.department,
-      role: employee.role
-    };
-
-    if (employee.id) {
-      const { data, error } = await supabase.from('employees').update(payload).eq('id', employee.id).select();
-      if (error) throw error;
-      return data[0];
-    } else {
-      const { data, error } = await supabase.from('employees').insert([payload]).select();
-      if (error) throw error;
-      return data[0];
+    const payload = { name: employee.name, cpf: employee.cpf, registration: employee.registration, department: employee.department, role: employee.role };
+    const query = employee.id ? supabase.from('employees').update(payload).eq('id', employee.id) : supabase.from('employees').insert([payload]);
+    const { data, error } = await query.select();
+    if (error) {
+      console.error("Erro DB Employee:", error);
+      throw new Error(`Erro ao salvar funcionário: ${error.message}`);
     }
+    return data[0];
   },
 
   deleteEmployee: async (id: string) => {
@@ -150,10 +98,7 @@ export const db = {
   // Atestados
   getCertificates: async (): Promise<MedicalCertificate[]> => {
     try {
-      const { data, error } = await supabase
-        .from('medical_certificates')
-        .select('*')
-        .order('issue_date', { ascending: false });
+      const { data, error } = await supabase.from('medical_certificates').select('*').order('issue_date', { ascending: false });
       if (error) throw error;
       return data.map(d => ({
         ...d,
@@ -161,13 +106,15 @@ export const db = {
         issueDate: d.issue_date,
         startDate: d.start_date,
         endDate: d.end_date,
+        days: d.days,
+        cid: d.cid,
         doctorName: d.doctor_name,
+        crm: d.crm,
+        type: d.type,
         fileUrl: d.file_path,
         createdAt: d.created_at
       })) as MedicalCertificate[];
-    } catch (e) {
-      return [];
-    }
+    } catch (e) { return []; }
   },
 
   saveCertificate: async (cert: Partial<MedicalCertificate>) => {
@@ -177,20 +124,22 @@ export const db = {
       start_date: cert.startDate,
       end_date: cert.endDate,
       days: cert.days,
-      cid: cert.cid,
+      cid: cert.cid || '',
       doctor_name: cert.doctorName,
       crm: cert.crm,
       type: cert.type,
       file_path: cert.fileUrl,
-      status: cert.status
+      status: cert.status || 'ACTIVE'
     };
 
-    if (cert.id) {
-      const { error } = await supabase.from('medical_certificates').update(payload).eq('id', cert.id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from('medical_certificates').insert([payload]);
-      if (error) throw error;
+    const query = cert.id ? supabase.from('medical_certificates').update(payload).eq('id', cert.id) : supabase.from('medical_certificates').insert([payload]);
+    const { data, error } = await query.select();
+    
+    if (error) {
+      console.error("Erro DB Certificate:", error);
+      throw new Error(`O banco recusou o salvamento: ${error.message}. (Verifique permissões de RLS)`);
     }
+    
+    return data[0];
   }
 };
