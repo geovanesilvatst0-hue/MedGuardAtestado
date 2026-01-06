@@ -1,0 +1,7 @@
+{
+  "name": "Copy of MedGuard - Gestão de Atestados Médicos",
+  "description": "Sistema completo para RH e Saúde Ocupacional gerenciar atestados, afastamentos e conformidade com a LGPD.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
