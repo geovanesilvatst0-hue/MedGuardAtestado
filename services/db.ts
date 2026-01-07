@@ -3,7 +3,6 @@ import { supabase, isConfigured } from './supabase';
 import { Employee, MedicalCertificate, User, UserRole, AuditLog } from '../types';
 
 export const db = {
-  // Verificação de saúde da conexão
   checkConnection: async (): Promise<boolean> => {
     if (!isConfigured) return false;
     try {
@@ -14,7 +13,51 @@ export const db = {
     }
   },
 
-  // Usuários e Perfis
+  uploadFile: async (file: File, isDemo: boolean = false): Promise<string> => {
+    if (isDemo) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    if (!isConfigured) throw new Error("Supabase não configurado.");
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.floor(Math.random() * 1000)}.${fileExt}`;
+    const filePath = `certificates/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('medguard-docs')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      console.error("Erro no Storage:", uploadError);
+      
+      // Detecção de erro de RLS (Permissões)
+      if (uploadError.message?.includes("row-level security policy") || (uploadError as any).statusCode === "403") {
+        throw new Error(`PERMISSÃO NEGADA (RLS): O bucket existe, mas o banco de dados bloqueou o envio. 
+        COMO RESOLVER: Vá no SQL Editor do Supabase e execute:
+        CREATE POLICY "Acesso Total" ON storage.objects FOR ALL TO authenticated USING (bucket_id = 'medguard-docs') WITH CHECK (bucket_id = 'medguard-docs');`);
+      }
+      
+      if (uploadError.message?.includes("Bucket not found")) {
+        throw new Error("CONFIGURAÇÃO NECESSÁRIA: O bucket 'medguard-docs' não foi encontrado. Crie-o na aba Storage do Supabase.");
+      }
+      
+      throw new Error(`Falha ao subir arquivo: ${uploadError.message}`);
+    }
+
+    const { data } = supabase.storage
+      .from('medguard-docs')
+      .getPublicUrl(filePath);
+
+    if (!data?.publicUrl) throw new Error("Falha ao gerar URL pública do arquivo.");
+
+    return data.publicUrl;
+  },
+
   getProfile: async (userId: string): Promise<User | null> => {
     if (!isConfigured) return null;
     try {
@@ -23,16 +66,9 @@ export const db = {
         .select('*')
         .eq('id', userId)
         .single();
-      
       if (error) return null;
-      return {
-        ...data,
-        createdAt: data.created_at,
-        lastLogin: data.last_login
-      } as User;
-    } catch (e) {
-      return null;
-    }
+      return { ...data, createdAt: data.created_at, lastLogin: data.last_login } as User;
+    } catch (e) { return null; }
   },
 
   getUsers: async (): Promise<User[]> => {
@@ -49,7 +85,6 @@ export const db = {
     return data?.[0] as User;
   },
 
-  // Auditoria
   addLog: async (log: Omit<AuditLog, 'id' | 'timestamp'>) => {
     if (!isConfigured) return;
     try {
@@ -70,7 +105,6 @@ export const db = {
     } catch (e) { return []; }
   },
 
-  // Funcionários
   getEmployees: async (): Promise<Employee[]> => {
     try {
       const { data, error } = await supabase.from('employees').select('*').order('name');
@@ -80,13 +114,19 @@ export const db = {
   },
 
   saveEmployee: async (employee: Partial<Employee>) => {
-    const payload = { name: employee.name, cpf: employee.cpf, registration: employee.registration, department: employee.department, role: employee.role };
-    const query = employee.id ? supabase.from('employees').update(payload).eq('id', employee.id) : supabase.from('employees').insert([payload]);
+    const payload = { 
+      name: employee.name, 
+      cpf: employee.cpf, 
+      registration: employee.registration, 
+      department: employee.department, 
+      role: employee.role 
+    };
+    const query = employee.id && !employee.id.startsWith('demo-') 
+      ? supabase.from('employees').update(payload).eq('id', employee.id) 
+      : supabase.from('employees').insert([payload]);
+    
     const { data, error } = await query.select();
-    if (error) {
-      console.error("Erro DB Employee:", error);
-      throw new Error(`Erro ao salvar funcionário: ${error.message}`);
-    }
+    if (error) throw new Error(`Erro ao salvar funcionário: ${error.message}`);
     return data[0];
   },
 
@@ -95,7 +135,6 @@ export const db = {
     if (error) throw error;
   },
 
-  // Atestados
   getCertificates: async (): Promise<MedicalCertificate[]> => {
     try {
       const { data, error } = await supabase.from('medical_certificates').select('*').order('issue_date', { ascending: false });
@@ -124,22 +163,19 @@ export const db = {
       start_date: cert.startDate,
       end_date: cert.endDate,
       days: cert.days,
-      cid: cert.cid || '',
+      cid: cert.cid || null,
       doctor_name: cert.doctorName,
       crm: cert.crm,
       type: cert.type,
-      file_path: cert.fileUrl,
-      status: cert.status || 'ACTIVE'
+      file_path: cert.fileUrl || null
     };
 
-    const query = cert.id ? supabase.from('medical_certificates').update(payload).eq('id', cert.id) : supabase.from('medical_certificates').insert([payload]);
+    const query = cert.id && !cert.id.startsWith('demo-')
+      ? supabase.from('medical_certificates').update(payload).eq('id', cert.id)
+      : supabase.from('medical_certificates').insert([payload]);
+
     const { data, error } = await query.select();
-    
-    if (error) {
-      console.error("Erro DB Certificate:", error);
-      throw new Error(`O banco recusou o salvamento: ${error.message}. (Verifique permissões de RLS)`);
-    }
-    
-    return data[0];
+    if (error) throw new Error(`Erro no salvamento do atestado: ${error.message}`);
+    return data?.[0];
   }
 };

@@ -12,15 +12,18 @@ import {
   PieChart,
   Pie
 } from 'recharts';
-import { TrendingUp, Users, Calendar, AlertTriangle } from 'lucide-react';
+import { TrendingUp, Users, Calendar, AlertTriangle, Printer, FileSpreadsheet, Download, Loader2, ClipboardList } from 'lucide-react';
 import { Employee, MedicalCertificate } from '../types';
 
 interface DashboardProps {
   employees: Employee[];
   certificates: MedicalCertificate[];
+  onExportPDF?: () => void;
+  onExportExcel?: () => void;
+  isExporting?: boolean;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ employees, certificates }) => {
+const Dashboard: React.FC<DashboardProps> = ({ employees, certificates, onExportPDF, onExportExcel, isExporting }) => {
   const activeCertificates = certificates.filter(c => {
     const today = new Date();
     const end = new Date(c.endDate);
@@ -37,85 +40,158 @@ const Dashboard: React.FC<DashboardProps> = ({ employees, certificates }) => {
     { label: 'Alertas Críticos', value: activeCertificates.filter(c => c.days > 15).length, icon: AlertTriangle, color: 'text-rose-600', bg: 'bg-rose-50' },
   ];
 
-  // Data for charts
   const deptData = React.useMemo(() => {
     const map: Record<string, number> = {};
     if (certificates.length === 0) return [{ name: 'Nenhum dado', value: 0 }];
-    
     certificates.forEach(c => {
       const emp = employees.find(e => e.id === c.employeeId);
-      if (emp) {
-        map[emp.department] = (map[emp.department] || 0) + 1;
-      }
+      if (emp) map[emp.department] = (map[emp.department] || 0) + 1;
     });
-
     const result = Object.entries(map).map(([name, value]) => ({ name, value }));
     return result.length > 0 ? result : [{ name: 'Sem registros', value: 0 }];
   }, [certificates, employees]);
 
-  const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+  const motiveData = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    if (certificates.length === 0) return [{ name: 'Nenhum dado', value: 0 }];
+    certificates.forEach(c => {
+      const type = c.type || 'Outros';
+      map[type] = (map[type] || 0) + 1;
+    });
+    const result = Object.entries(map).map(([name, value]) => ({ name, value }));
+    return result.length > 0 ? result : [{ name: 'Sem registros', value: 0 }];
+  }, [certificates]);
+
+  const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1'];
+
+  const handlePrint = () => {
+    // Pequeno atraso para garantir que o navegador processe o clique antes de abrir o diálogo
+    setTimeout(() => {
+      window.print();
+    }, 100);
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Dashboard Header - Hides on Print via CSS but we also use utility class */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800 tracking-tight">Dashboard Operacional</h2>
+          <p className="text-xs text-slate-500 font-medium uppercase tracking-widest">Indicadores em Tempo Real • KPI Saúde</p>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className="flex items-center bg-white rounded-2xl p-1 border border-slate-200 shadow-sm">
+            <button 
+              onClick={handlePrint}
+              type="button"
+              className="p-3 text-slate-500 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-all active:scale-90" 
+              title="Imprimir Painel"
+            >
+              <Printer size={20} />
+            </button>
+            <button 
+              onClick={onExportExcel}
+              type="button"
+              className="p-3 text-slate-500 hover:text-emerald-600 hover:bg-slate-50 rounded-xl transition-all active:scale-90" 
+              title="Exportar Excel"
+            >
+              <FileSpreadsheet size={20} />
+            </button>
+          </div>
+
+          <button 
+            onClick={onExportPDF}
+            disabled={isExporting}
+            type="button"
+            className="bg-slate-900 text-white px-7 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-slate-200 hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50"
+          >
+            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            Gerar Relatório PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Título de Impressão (Só aparece no papel) */}
+      <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
+        <h1 className="text-2xl font-black text-slate-900 uppercase">Relatório de Indicadores MedGuard</h1>
+        <p className="text-xs font-bold text-slate-500">Data do Relatório: {new Date().toLocaleString('pt-BR')}</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4">
         {stats.map((s, i) => (
-          <div key={i} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${s.bg}`}>
+          <div key={i} className="bg-white p-6 rounded-[1.5rem] border border-slate-200 shadow-sm flex items-center gap-4 transition-all">
+            <div className={`p-3 rounded-2xl ${s.bg} shrink-0 print:border print:border-slate-100`}>
               <s.icon className={s.color} size={24} />
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">{s.label}</p>
-              <p className="text-2xl font-bold text-slate-900">{s.value}</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{s.label}</p>
+              <p className="text-2xl font-black text-slate-900">{s.value}</p>
             </div>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm min-h-[350px]">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Afastamentos por Setor</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-2">
+        <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm min-h-[380px]">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Afastamentos por Setor</h3>
+            <div className="w-8 h-8 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400 print:hidden">
+               <TrendingUp size={16} />
+            </div>
+          </div>
           <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart data={deptData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" />
-                <YAxis />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 'bold', fill: '#94a3b8'}} />
+                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 'bold', fill: '#94a3b8'}} />
                 <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  cursor={{fill: '#f8fafc'}}
+                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }}
                 />
-                <Bar dataKey="value" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="value" fill="#4f46e5" radius={[6, 6, 0, 0]} barSize={40} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm min-h-[350px]">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Distribuição de Motivos</h3>
-          <div className="h-[250px] flex items-center w-full">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-              <PieChart>
-                <Pie
-                  data={deptData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {deptData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="space-y-2 ml-4">
-              {deptData.slice(0, 5).map((d, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                  <span className="text-slate-600 truncate max-w-[100px]">{d.name}:</span>
-                  <span className="font-bold">{d.value}</span>
+        <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm min-h-[380px]">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Distribuição de Motivos</h3>
+            <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-400 print:hidden">
+               <ClipboardList size={16} />
+            </div>
+          </div>
+          <div className="h-[250px] flex flex-col md:flex-row items-center w-full gap-8">
+            <div className="flex-1 h-full w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={motiveData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={85}
+                    paddingAngle={8}
+                    dataKey="value"
+                  >
+                    {motiveData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="space-y-3 shrink-0">
+              {motiveData.map((d, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest truncate max-w-[120px]">{d.name}</span>
+                  <span className="text-xs font-black text-slate-900 ml-auto">{d.value}</span>
                 </div>
               ))}
             </div>
@@ -123,45 +199,44 @@ const Dashboard: React.FC<DashboardProps> = ({ employees, certificates }) => {
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-slate-800">Afastamentos Ativos</h3>
+      <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Afastamentos Ativos</h3>
+          <span className="bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest print:hidden">RESUMO RECENTE</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
-            <thead className="text-xs uppercase text-slate-500 bg-slate-50">
+            <thead className="text-[10px] uppercase text-slate-400 bg-slate-50 font-black">
               <tr>
-                <th className="px-4 py-3 font-semibold">Funcionário</th>
-                <th className="px-4 py-3 font-semibold">Setor</th>
-                <th className="px-4 py-3 font-semibold">Início</th>
-                <th className="px-4 py-3 font-semibold">Término</th>
-                <th className="px-4 py-3 font-semibold">Dias</th>
-                <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-8 py-4">Funcionário</th>
+                <th className="px-8 py-4">Setor</th>
+                <th className="px-8 py-4">Início</th>
+                <th className="px-8 py-4">Término</th>
+                <th className="px-8 py-4">Dias</th>
+                <th className="px-8 py-4">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {activeCertificates.slice(0, 5).map((c) => {
+              {activeCertificates.slice(0, 10).map((c) => {
                 const emp = employees.find(e => e.id === c.employeeId);
                 return (
                   <tr key={c.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-4 font-medium text-slate-900">{emp?.name || '---'}</td>
-                    <td className="px-4 py-4 text-slate-600">{emp?.department || '---'}</td>
-                    <td className="px-4 py-4 text-slate-600">{new Date(c.startDate).toLocaleDateString()}</td>
-                    <td className="px-4 py-4 text-slate-600">{new Date(c.endDate).toLocaleDateString()}</td>
-                    <td className="px-4 py-4 font-bold text-slate-700">{c.days}</td>
-                    <td className="px-4 py-4">
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                    <td className="px-8 py-5">
+                      <p className="font-black text-slate-900 text-xs">{emp?.name || '---'}</p>
+                      <p className="text-[9px] text-slate-400 font-mono">{emp?.registration || '---'}</p>
+                    </td>
+                    <td className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-widest">{emp?.department || '---'}</td>
+                    <td className="px-8 py-5 text-[11px] font-bold text-slate-600">{new Date(c.startDate).toLocaleDateString()}</td>
+                    <td className="px-8 py-5 text-[11px] font-bold text-slate-600">{new Date(c.endDate).toLocaleDateString()}</td>
+                    <td className="px-8 py-5 font-black text-indigo-600 text-xs">{c.days}</td>
+                    <td className="px-8 py-5">
+                      <span className="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-100">
                         Ativo
                       </span>
                     </td>
                   </tr>
                 );
               })}
-              {activeCertificates.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm italic">Nenhum afastamento ativo no momento.</td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
