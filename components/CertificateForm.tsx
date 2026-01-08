@@ -15,7 +15,7 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
   const [formData, setFormData] = React.useState<Partial<MedicalCertificate>>(
     initialData || {
       employeeId: '',
-      issueDate: '',
+      issueDate: new Date().toISOString().split('T')[0], // Inicializa com hoje
       startDate: '',
       endDate: '',
       days: 1,
@@ -43,7 +43,10 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
   };
 
   const handleManualSubmit = async () => {
-    if (!formData.employeeId) return alert("Selecione o paciente.");
+    // Validações de campos obrigatórios para evitar erro de banco
+    if (!formData.employeeId) return alert("Por favor, selecione o funcionário.");
+    if (!formData.startDate) return alert("A data de início do afastamento é obrigatória.");
+    if (!formData.endDate) return alert("A data de término do afastamento é obrigatória.");
     
     setErrorMsg(null);
     setIsSaving(true);
@@ -56,10 +59,22 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
         setUploadProgress(false);
       }
 
+      // Calcula os dias automaticamente se não estiver definido
+      let days = formData.days || 1;
+      if (formData.startDate && formData.endDate) {
+        const start = new Date(formData.startDate);
+        const end = new Date(formData.endDate);
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      }
+
       await onSave({
         ...formData,
+        days,
         fileUrl: finalUrl,
         cid: lgpdConsent ? formData.cid : '',
+        // Se a data de emissão estiver vazia, usa a data de início como fallback
+        issueDate: formData.issueDate || formData.startDate 
       });
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -102,10 +117,10 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
               <div className="p-5 bg-rose-50 border border-rose-100 rounded-[1.5rem] space-y-3 animate-in slide-in-from-top-4">
                 <div className="flex items-center gap-2 text-rose-600">
                   <AlertTriangle size={18} />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Erro de Configuração</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Erro no Registro</span>
                 </div>
                 <p className="text-[10px] font-bold text-rose-800 leading-tight">
-                  {errorMsg.includes("RLS") ? "O banco bloqueou o arquivo por falta de permissão." : errorMsg}
+                  {errorMsg}
                 </p>
                 {errorMsg.includes("RLS") && (
                   <button onClick={copyFixSql} className="w-full py-3 bg-white border border-rose-200 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-rose-100 transition-all">
@@ -176,21 +191,21 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
           <div className="flex-1 p-10 overflow-y-auto bg-white custom-scrollbar">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-10">
               <div className="col-span-full group">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block group-focus-within:text-indigo-600 transition-colors">Funcionário / Paciente</label>
-                <select name="employeeId" className="w-full px-6 py-4.5 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-black focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all appearance-none cursor-pointer" value={formData.employeeId} onChange={handleChange}>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block group-focus-within:text-indigo-600 transition-colors">Funcionário / Paciente *</label>
+                <select name="employeeId" required className="w-full px-6 py-4.5 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-black focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all appearance-none cursor-pointer" value={formData.employeeId} onChange={handleChange}>
                   <option value="">Selecione o funcionário...</option>
                   {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.registration})</option>)}
                 </select>
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Início do Afastamento</label>
-                <input type="date" name="startDate" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all" value={formData.startDate} onChange={handleChange} />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Início do Afastamento *</label>
+                <input type="date" name="startDate" required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all" value={formData.startDate} onChange={handleChange} />
               </div>
               
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Término do Afastamento</label>
-                <input type="date" name="endDate" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all" value={formData.endDate} onChange={handleChange} />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Término do Afastamento *</label>
+                <input type="date" name="endDate" required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all" value={formData.endDate} onChange={handleChange} />
               </div>
 
               <div className="col-span-full p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-6">
