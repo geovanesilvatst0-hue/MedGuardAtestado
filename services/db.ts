@@ -2,7 +2,7 @@
 import { supabase, isConfigured } from './supabase';
 import { Employee, MedicalCertificate, User, UserRole, AuditLog } from '../types';
 
-// Helper para gerar um ID compatível com UUID v4 para o Supabase
+// Helper para gerar um ID compatível com UUID v4
 const generateUUID = () => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
     const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -29,26 +29,15 @@ export const db = {
         reader.readAsDataURL(file);
       });
     }
-
     if (!isConfigured) throw new Error("Supabase não configurado.");
-
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}-${Math.floor(Math.random() * 1000)}.${fileExt}`;
     const filePath = `certificates/${fileName}`;
-
     const { error: uploadError } = await supabase.storage
       .from('medguard-docs')
       .upload(filePath, file);
-
-    if (uploadError) {
-      console.error("Erro no Storage:", uploadError);
-      throw new Error(`Falha ao subir arquivo: ${uploadError.message}`);
-    }
-
-    const { data } = supabase.storage
-      .from('medguard-docs')
-      .getPublicUrl(filePath);
-
+    if (uploadError) throw new Error(`Falha ao subir arquivo: ${uploadError.message}`);
+    const { data } = supabase.storage.from('medguard-docs').getPublicUrl(filePath);
     return data.publicUrl;
   },
 
@@ -78,9 +67,9 @@ export const db = {
   },
 
   saveUser: async (user: Partial<User>) => {
-    // Se o ID for novo (gerado pelo front), garantimos que seja um UUID válido
-    const isNew = !user.id || user.id.startsWith('user-');
-    const finalId = isNew ? generateUUID() : user.id;
+    // Se o usuário já tem um ID que NÃO começa com 'user-', é uma atualização
+    const isUpdate = user.id && !user.id.startsWith('user-');
+    const finalId = isUpdate ? user.id : generateUUID();
     
     const payload = {
       id: finalId,
@@ -92,20 +81,18 @@ export const db = {
       city: user.city || null
     };
 
-    const query = isNew 
-      ? supabase.from('profiles').insert([payload])
-      : supabase.from('profiles').update(payload).eq('id', user.id);
-
-    const { data, error } = await query.select();
+    // Usamos upsert para simplificar: se o ID ou Email existir, ele atualiza, senão insere.
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert([payload], { onConflict: 'email' })
+      .select();
     
     if (error) {
-      console.error("Erro Supabase Profiles:", error);
-      // Mensagens amigáveis para erros comuns
-      if (error.code === '23505') throw new Error("Este e-mail já está cadastrado no sistema.");
-      if (error.code === '42P01') throw new Error("A tabela 'profiles' não foi encontrada. Verifique o SQL Editor.");
-      if (error.code === '22P02') throw new Error("Erro de formato de dados (UUID). Verifique a coluna ID.");
-      
-      throw new Error(`Erro no banco de dados: ${error.message}`);
+      console.error("Erro detalhado do banco:", error);
+      if (error.message.includes("foreign key constraint")) {
+        throw new Error("Erro de Vínculo: Você precisa executar o comando SQL para remover a restrição 'profiles_id_fkey' no painel do Supabase.");
+      }
+      throw new Error(`Erro ao salvar: ${error.message}`);
     }
     
     return data?.[0] as User;
@@ -156,10 +143,10 @@ export const db = {
       cnpj: employee.cnpj || null,
       city: employee.city || null
     };
-    const isNew = !employee.id || employee.id.startsWith('demo-');
-    const query = isNew
-      ? supabase.from('employees').insert([payload])
-      : supabase.from('employees').update(payload).eq('id', employee.id);
+    const isUpdate = employee.id && !employee.id.startsWith('demo-');
+    const query = isUpdate
+      ? supabase.from('employees').update(payload).eq('id', employee.id)
+      : supabase.from('employees').insert([payload]);
     
     const { data, error } = await query.select();
     if (error) throw new Error(`Erro ao salvar funcionário: ${error.message}`);
@@ -207,12 +194,10 @@ export const db = {
       file_path: cert.fileUrl || null,
       observations: cert.observations || null
     };
-
-    const isNew = !cert.id || cert.id.startsWith('demo-');
-    const query = isNew
-      ? supabase.from('medical_certificates').insert([payload])
-      : supabase.from('medical_certificates').update(payload).eq('id', cert.id);
-
+    const isUpdate = cert.id && !cert.id.startsWith('demo-');
+    const query = isUpdate
+      ? supabase.from('medical_certificates').update(payload).eq('id', cert.id)
+      : supabase.from('medical_certificates').insert([payload]);
     const { data, error } = await query.select();
     if (error) throw new Error(`Erro no salvamento: ${error.message}`);
     return data?.[0];
