@@ -125,11 +125,11 @@ const App: React.FC = () => {
 
   const handleExportPDF = () => {
     setIsExporting(true);
-    const doc = new jsPDF();
+    const doc = new jsPDF('landscape');
     
     // Cabeçalho do Relatório
     doc.setFillColor(79, 70, 229); // Indigo-600
-    doc.rect(0, 0, 210, 40, 'F');
+    doc.rect(0, 0, 297, 40, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
     doc.text('MedGuard - Relatório de Afastamentos', 15, 25);
@@ -145,17 +145,21 @@ const App: React.FC = () => {
         new Date(c.endDate).toLocaleDateString(),
         c.days.toString(),
         c.cid || 'N/I',
-        c.type
+        c.type,
+        c.observations || '---'
       ];
     });
 
     autoTable(doc, {
       startY: 50,
-      head: [['Funcionário', 'Matrícula', 'Início', 'Término', 'Dias', 'CID', 'Tipo']],
+      head: [['Funcionário', 'Matrícula', 'Início', 'Término', 'Dias', 'CID', 'Tipo', 'Observações']],
       body: tableData,
       headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [245, 247, 250] },
-      styles: { fontSize: 9 },
+      styles: { fontSize: 8 },
+      columnStyles: {
+        7: { cellWidth: 60 } // Largura maior para observações
+      }
     });
 
     doc.save(`relatorio_atestados_${Date.now()}.pdf`);
@@ -175,7 +179,8 @@ const App: React.FC = () => {
         'CID': c.cid,
         'Médico': c.doctorName,
         'CRM': c.crm,
-        'Tipo': c.type
+        'Tipo': c.type,
+        'Observações': c.observations
       };
     });
     
@@ -202,6 +207,7 @@ const App: React.FC = () => {
           certificates={certificates} 
           onExportPDF={handleExportPDF}
           onExportExcel={handleExportExcel}
+          onViewCertificate={(c) => { setCurrentEdit(c); setIsFormOpen(true); }}
           isExporting={isExporting}
         />
       );

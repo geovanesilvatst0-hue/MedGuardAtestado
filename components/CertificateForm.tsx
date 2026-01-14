@@ -1,8 +1,9 @@
 
 import React from 'react';
-import { X, Upload, Save, User, FileText, Stethoscope, ShieldCheck, CheckCircle2, Loader2, Trash2, ExternalLink, AlertTriangle, Copy } from 'lucide-react';
+import { X, Upload, Save, User, FileText, Stethoscope, ShieldCheck, CheckCircle2, Loader2, Trash2, ExternalLink, AlertTriangle, Copy, Sparkles, Wand2, MessageSquare } from 'lucide-react';
 import { Employee, MedicalCertificate } from '../types';
 import { db } from '../services/db';
+import { GoogleGenAI, Type } from "@google/genai";
 
 interface CertificateFormProps {
   employees: Employee[];
@@ -15,7 +16,7 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
   const [formData, setFormData] = React.useState<Partial<MedicalCertificate>>(
     initialData || {
       employeeId: '',
-      issueDate: new Date().toISOString().split('T')[0], // Inicializa com hoje
+      issueDate: '',
       startDate: '',
       endDate: '',
       days: 1,
@@ -23,30 +24,128 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
       doctorName: '',
       crm: '',
       type: 'Doença',
-      fileUrl: ''
+      fileUrl: '',
+      observations: ''
     }
   );
 
   const [file, setFile] = React.useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(initialData?.fileUrl || null);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const [uploadProgress, setUploadProgress] = React.useState(false);
   const [lgpdConsent, setLgpdConsent] = React.useState(!!initialData?.cid);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
+  const [analysisStep, setAnalysisStep] = React.useState('');
 
   const isDemo = employees.some(e => e.id.startsWith('demo-')) || initialData?.id?.startsWith('demo-');
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     if (name === 'cid' && value.trim() !== '') setLgpdConsent(true);
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const handleAnalyzeDocument = async () => {
+    if (!file) return;
+
+    setIsAnalyzing(true);
+    setAnalysisStep('Iniciando análise inteligente...');
+    
+    try {
+      const base64Data = await fileToBase64(file);
+      const ai = new GoogleGenAI({ apiKey: (process.env as any).API_KEY });
+      
+      setAnalysisStep('Processando imagem com OCR...');
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          {
+            parts: [
+              { inlineData: { data: base64Data, mimeType: file.type } },
+              { text: `Você é um especialista em análise de atestados médicos brasileiros para RH. 
+              Extraia as seguintes informações do documento e retorne APENAS um JSON:
+              - patientName: Nome completo do paciente
+              - startDate: Data de início (YYYY-MM-DD)
+              - endDate: Data de término (YYYY-MM-DD)
+              - days: Quantidade de dias de afastamento (inteiro)
+              - cid: Código CID-10 se disponível
+              - doctorName: Nome do médico
+              - crm: CRM do médico e UF (Ex: 12345/SP)
+              - type: Classifique entre 'Doença', 'Acidente', 'Maternidade' ou 'Outros'
+              - observations: Qualquer observação relevante ou restrição médica descrita no atestado` }
+            ]
+          }
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              patientName: { type: Type.STRING },
+              startDate: { type: Type.STRING },
+              endDate: { type: Type.STRING },
+              days: { type: Type.INTEGER },
+              cid: { type: Type.STRING },
+              doctorName: { type: Type.STRING },
+              crm: { type: Type.STRING },
+              type: { type: Type.STRING },
+              observations: { type: Type.STRING }
+            }
+          }
+        }
+      });
+
+      setAnalysisStep('Mapeando dados extraídos...');
+      const result = JSON.parse(response.text);
+
+      // Tenta encontrar o funcionário pelo nome extraído
+      let foundEmployeeId = formData.employeeId;
+      if (result.patientName) {
+        const matched = employees.find(e => 
+          e.name.toLowerCase().includes(result.patientName.toLowerCase()) ||
+          result.patientName.toLowerCase().includes(e.name.toLowerCase())
+        );
+        if (matched) foundEmployeeId = matched.id;
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        employeeId: foundEmployeeId,
+        startDate: result.startDate || prev.startDate,
+        endDate: result.endDate || prev.endDate,
+        days: result.days || prev.days,
+        cid: result.cid || prev.cid,
+        doctorName: result.doctorName || prev.doctorName,
+        crm: result.crm || prev.crm,
+        type: (['Doença', 'Acidente', 'Maternidade', 'Outros'].includes(result.type) ? result.type : 'Doença') as any,
+        observations: result.observations || prev.observations
+      }));
+
+      if (result.cid) setLgpdConsent(true);
+      setAnalysisStep('Pronto!');
+      setTimeout(() => setAnalysisStep(''), 2000);
+
+    } catch (err: any) {
+      console.error("Erro na análise IA:", err);
+      setErrorMsg("Não foi possível analisar este documento automaticamente. Verifique se a imagem está legível.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleManualSubmit = async () => {
-    // Validações de campos obrigatórios para evitar erro de banco
-    if (!formData.employeeId) return alert("Por favor, selecione o funcionário.");
-    if (!formData.startDate) return alert("A data de início do afastamento é obrigatória.");
-    if (!formData.endDate) return alert("A data de término do afastamento é obrigatória.");
+    if (!formData.employeeId) return alert("Selecione o paciente.");
     
     setErrorMsg(null);
     setIsSaving(true);
@@ -59,22 +158,10 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
         setUploadProgress(false);
       }
 
-      // Calcula os dias automaticamente se não estiver definido
-      let days = formData.days || 1;
-      if (formData.startDate && formData.endDate) {
-        const start = new Date(formData.startDate);
-        const end = new Date(formData.endDate);
-        const diffTime = Math.abs(end.getTime() - start.getTime());
-        days = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-      }
-
       await onSave({
         ...formData,
-        days,
         fileUrl: finalUrl,
         cid: lgpdConsent ? formData.cid : '',
-        // Se a data de emissão estiver vazia, usa a data de início como fallback
-        issueDate: formData.issueDate || formData.startDate 
       });
     } catch (err: any) {
       setErrorMsg(err.message);
@@ -82,12 +169,6 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
       setIsSaving(false);
       setUploadProgress(false);
     }
-  };
-
-  const copyFixSql = () => {
-    const sql = `CREATE POLICY "Acesso Total" ON storage.objects FOR ALL TO authenticated USING (bucket_id = 'medguard-docs') WITH CHECK (bucket_id = 'medguard-docs');`;
-    navigator.clipboard.writeText(sql);
-    alert("Comando SQL copiado! Cole no SQL Editor do Supabase e execute.");
   };
 
   return (
@@ -117,16 +198,11 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
               <div className="p-5 bg-rose-50 border border-rose-100 rounded-[1.5rem] space-y-3 animate-in slide-in-from-top-4">
                 <div className="flex items-center gap-2 text-rose-600">
                   <AlertTriangle size={18} />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Erro no Registro</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Erro</span>
                 </div>
                 <p className="text-[10px] font-bold text-rose-800 leading-tight">
                   {errorMsg}
                 </p>
-                {errorMsg.includes("RLS") && (
-                  <button onClick={copyFixSql} className="w-full py-3 bg-white border border-rose-200 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-rose-100 transition-all">
-                    <Copy size={12} /> Copiar SQL de Correção
-                  </button>
-                )}
               </div>
             )}
 
@@ -150,15 +226,23 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
                       <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm">
                         <CheckCircle2 size={32} className="text-emerald-500" />
                       </div>
-                      <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest">Documento Anexado</p>
+                      <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest">Documento Carregado</p>
                     </div>
                     
                     <div className="flex flex-col gap-3">
+                      <button 
+                        onClick={handleAnalyzeDocument}
+                        disabled={isAnalyzing}
+                        className="w-full py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:bg-slate-300 active:scale-95"
+                      >
+                        {isAnalyzing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                        Analisar com IA
+                      </button>
                       <a href={previewUrl} target="_blank" rel="noreferrer" className="w-full py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-50 transition-all shadow-sm active:scale-95">
                         <ExternalLink size={14} /> Abrir Documento
                       </a>
                       <button onClick={() => { setPreviewUrl(null); setFile(null); }} className="w-full py-3 text-rose-500 text-[9px] font-black uppercase tracking-widest hover:bg-rose-50 rounded-xl transition-all flex items-center justify-center gap-2">
-                        <Trash2 size={14} /> Remover Anexo
+                        <Trash2 size={14} /> Remover
                       </button>
                     </div>
                   </div>
@@ -166,12 +250,12 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
               </div>
             </div>
 
-            {uploadProgress && (
+            {(isAnalyzing || uploadProgress) && (
               <div className="p-5 bg-indigo-600 rounded-[1.5rem] text-white flex items-center gap-4 animate-pulse shadow-lg shadow-indigo-200">
                 <Loader2 size={24} className="animate-spin" />
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest">Enviando Arquivo</p>
-                  <p className="text-[9px] font-bold opacity-70">Sincronizando com Storage...</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest">{isAnalyzing ? 'IA Analisando' : 'Enviando Arquivo'}</p>
+                  <p className="text-[9px] font-bold opacity-70">{analysisStep || 'Sincronizando...'}</p>
                 </div>
               </div>
             )}
@@ -179,10 +263,10 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
             <div className="p-6 bg-amber-50 rounded-[1.5rem] border border-amber-100">
               <div className="flex items-center gap-3 mb-2 text-amber-700">
                 <ShieldCheck size={18} />
-                <span className="text-[10px] font-black uppercase tracking-widest">Aviso de Segurança</span>
+                <span className="text-[10px] font-black uppercase tracking-widest">Segurança & IA</span>
               </div>
               <p className="text-[10px] font-bold text-amber-800 leading-relaxed opacity-80">
-                Certifique-se de que o documento está legível e contém a assinatura e carimbo do médico para validade jurídica.
+                A IA extrai dados para agilizar o preenchimento, mas a conferência humana final é obrigatória para validade jurídica.
               </p>
             </div>
           </div>
@@ -191,21 +275,21 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
           <div className="flex-1 p-10 overflow-y-auto bg-white custom-scrollbar">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-10">
               <div className="col-span-full group">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block group-focus-within:text-indigo-600 transition-colors">Funcionário / Paciente *</label>
-                <select name="employeeId" required className="w-full px-6 py-4.5 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-black focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all appearance-none cursor-pointer" value={formData.employeeId} onChange={handleChange}>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block group-focus-within:text-indigo-600 transition-colors">Funcionário / Paciente</label>
+                <select name="employeeId" className="w-full px-6 py-4.5 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-black focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all appearance-none cursor-pointer" value={formData.employeeId} onChange={handleChange}>
                   <option value="">Selecione o funcionário...</option>
                   {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.registration})</option>)}
                 </select>
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Início do Afastamento *</label>
-                <input type="date" name="startDate" required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all" value={formData.startDate} onChange={handleChange} />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Início do Afastamento</label>
+                <input type="date" name="startDate" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all" value={formData.startDate} onChange={handleChange} />
               </div>
               
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Término do Afastamento *</label>
-                <input type="date" name="endDate" required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all" value={formData.endDate} onChange={handleChange} />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Término do Afastamento</label>
+                <input type="date" name="endDate" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all" value={formData.endDate} onChange={handleChange} />
               </div>
 
               <div className="col-span-full p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-6">
@@ -257,12 +341,27 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
                   ))}
                 </div>
               </div>
+
+              <div className="col-span-full group">
+                <div className="flex items-center gap-2 mb-2 ml-1">
+                  <MessageSquare size={14} className="text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-focus-within:text-indigo-600 transition-colors">Observações Adicionais</label>
+                </div>
+                <textarea 
+                  name="observations" 
+                  rows={4}
+                  className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-[1.5rem] text-sm font-medium focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all placeholder:text-slate-300 resize-none"
+                  placeholder="Descreva restrições médicas, recomendações de ergonomia ou detalhes do afastamento..."
+                  value={formData.observations}
+                  onChange={handleChange}
+                />
+              </div>
             </div>
 
             {/* Footer com Ações */}
             <div className="flex items-center justify-end gap-6 pt-12 mt-12 border-t border-slate-100 shrink-0">
               <button type="button" onClick={onClose} className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] px-8 py-4 hover:text-slate-600 transition-colors">Cancelar</button>
-              <button onClick={handleManualSubmit} disabled={isSaving} className="bg-indigo-600 text-white px-12 py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all flex items-center gap-3 active:scale-95 disabled:bg-slate-300 disabled:shadow-none disabled:translate-y-0">
+              <button onClick={handleManualSubmit} disabled={isSaving || isAnalyzing} className="bg-indigo-600 text-white px-12 py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-indigo-200 hover:bg-indigo-700 hover:-translate-y-1 transition-all flex items-center gap-3 active:scale-95 disabled:bg-slate-300 disabled:shadow-none disabled:translate-y-0">
                 {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
                 Confirmar Registro
               </button>

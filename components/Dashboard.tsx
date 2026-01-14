@@ -12,7 +12,7 @@ import {
   PieChart,
   Pie
 } from 'recharts';
-import { TrendingUp, Users, Calendar, AlertTriangle, Printer, FileSpreadsheet, Download, Loader2, ClipboardList } from 'lucide-react';
+import { TrendingUp, Users, Calendar, AlertTriangle, Printer, FileSpreadsheet, Download, Loader2, ClipboardList, Inbox } from 'lucide-react';
 import { Employee, MedicalCertificate } from '../types';
 
 interface DashboardProps {
@@ -20,15 +20,29 @@ interface DashboardProps {
   certificates: MedicalCertificate[];
   onExportPDF?: () => void;
   onExportExcel?: () => void;
+  onViewCertificate?: (cert: MedicalCertificate) => void;
   isExporting?: boolean;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ employees, certificates, onExportPDF, onExportExcel, isExporting }) => {
-  const activeCertificates = certificates.filter(c => {
+const Dashboard: React.FC<DashboardProps> = ({ 
+  employees, 
+  certificates, 
+  onExportPDF, 
+  onExportExcel, 
+  onViewCertificate,
+  isExporting 
+}) => {
+  // Lógica robusta para identificar afastamentos que ainda estão vigentes hoje
+  const activeCertificates = React.useMemo(() => {
     const today = new Date();
-    const end = new Date(c.endDate);
-    return end >= today;
-  });
+    today.setHours(0, 0, 0, 0);
+    
+    return certificates.filter(c => {
+      const end = new Date(c.endDate);
+      end.setHours(23, 59, 59, 999);
+      return end >= today;
+    }).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+  }, [certificates]);
 
   const stats = [
     { label: 'Afastados Atuais', value: activeCertificates.length, icon: Calendar, color: 'text-indigo-600', bg: 'bg-indigo-50' },
@@ -65,7 +79,6 @@ const Dashboard: React.FC<DashboardProps> = ({ employees, certificates, onExport
   const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1'];
 
   const handlePrint = () => {
-    // Pequeno atraso para garantir que o navegador processe o clique antes de abrir o diálogo
     setTimeout(() => {
       window.print();
     }, 100);
@@ -73,7 +86,7 @@ const Dashboard: React.FC<DashboardProps> = ({ employees, certificates, onExport
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Dashboard Header - Hides on Print via CSS but we also use utility class */}
+      {/* Dashboard Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">Dashboard Operacional</h2>
@@ -112,15 +125,15 @@ const Dashboard: React.FC<DashboardProps> = ({ employees, certificates, onExport
         </div>
       </div>
 
-      {/* Título de Impressão (Só aparece no papel) */}
       <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
         <h1 className="text-2xl font-black text-slate-900 uppercase">Relatório de Indicadores MedGuard</h1>
         <p className="text-xs font-bold text-slate-500">Data do Relatório: {new Date().toLocaleString('pt-BR')}</p>
       </div>
 
+      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4">
         {stats.map((s, i) => (
-          <div key={i} className="bg-white p-6 rounded-[1.5rem] border border-slate-200 shadow-sm flex items-center gap-4 transition-all">
+          <div key={i} className="bg-white p-6 rounded-[1.5rem] border border-slate-200 shadow-sm flex items-center gap-4 transition-all hover:border-indigo-100">
             <div className={`p-3 rounded-2xl ${s.bg} shrink-0 print:border print:border-slate-100`}>
               <s.icon className={s.color} size={24} />
             </div>
@@ -133,6 +146,7 @@ const Dashboard: React.FC<DashboardProps> = ({ employees, certificates, onExport
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-2">
+        {/* Charts remain the same */}
         <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm min-h-[380px]">
           <div className="flex items-center justify-between mb-8">
             <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Afastamentos por Setor</h3>
@@ -199,6 +213,7 @@ const Dashboard: React.FC<DashboardProps> = ({ employees, certificates, onExport
         </div>
       </div>
 
+      {/* Improved Active Absences Table */}
       <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-8 border-b border-slate-100 flex items-center justify-between">
           <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Afastamentos Ativos</h3>
@@ -212,31 +227,51 @@ const Dashboard: React.FC<DashboardProps> = ({ employees, certificates, onExport
                 <th className="px-8 py-4">Setor</th>
                 <th className="px-8 py-4">Início</th>
                 <th className="px-8 py-4">Término</th>
-                <th className="px-8 py-4">Dias</th>
+                <th className="px-8 py-4 text-center">Dias</th>
                 <th className="px-8 py-4">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {activeCertificates.slice(0, 10).map((c) => {
-                const emp = employees.find(e => e.id === c.employeeId);
-                return (
-                  <tr key={c.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-8 py-5">
-                      <p className="font-black text-slate-900 text-xs">{emp?.name || '---'}</p>
-                      <p className="text-[9px] text-slate-400 font-mono">{emp?.registration || '---'}</p>
-                    </td>
-                    <td className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-widest">{emp?.department || '---'}</td>
-                    <td className="px-8 py-5 text-[11px] font-bold text-slate-600">{new Date(c.startDate).toLocaleDateString()}</td>
-                    <td className="px-8 py-5 text-[11px] font-bold text-slate-600">{new Date(c.endDate).toLocaleDateString()}</td>
-                    <td className="px-8 py-5 font-black text-indigo-600 text-xs">{c.days}</td>
-                    <td className="px-8 py-5">
-                      <span className="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-100">
-                        Ativo
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {activeCertificates.length > 0 ? (
+                activeCertificates.slice(0, 10).map((c) => {
+                  const emp = employees.find(e => e.id === c.employeeId);
+                  return (
+                    <tr 
+                      key={c.id} 
+                      className="hover:bg-slate-50 transition-colors cursor-pointer group"
+                      onClick={() => onViewCertificate?.(c)}
+                    >
+                      <td className="px-8 py-5">
+                        <p className="font-black text-slate-900 text-xs group-hover:text-indigo-600 transition-colors">{emp?.name || 'Não vinculado'}</p>
+                        <p className="text-[9px] text-slate-400 font-mono">{emp?.registration || '---'}</p>
+                      </td>
+                      <td className="px-8 py-5 text-[11px] font-bold text-slate-500 uppercase tracking-widest">{emp?.department || '---'}</td>
+                      <td className="px-8 py-5 text-[11px] font-bold text-slate-600">{new Date(c.startDate).toLocaleDateString()}</td>
+                      <td className="px-8 py-5 text-[11px] font-bold text-slate-600">{new Date(c.endDate).toLocaleDateString()}</td>
+                      <td className="px-8 py-5 font-black text-indigo-600 text-xs text-center">{c.days}</td>
+                      <td className="px-8 py-5">
+                        <span className="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-100">
+                          Ativo
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-8 py-16 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-300">
+                        <Inbox size={24} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Nenhum afastamento ativo</p>
+                        <p className="text-[10px] text-slate-300 font-bold">Todos os funcionários estão em atividade.</p>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -75,6 +75,6 @@ export interface MedicalCertificate {
   status: CertificateStatus;
   type: 'Doença' | 'Acidente' | 'Maternidade' | 'Outros';
   extractionConfidence?: ExtractionConfidence;
-  // Added createdAt as it is used in App.tsx
   createdAt?: string;
+  observations?: string;
 }

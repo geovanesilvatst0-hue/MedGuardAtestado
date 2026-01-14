@@ -151,24 +151,25 @@ export const db = {
         crm: d.crm,
         type: d.type,
         fileUrl: d.file_path,
-        createdAt: d.created_at
+        createdAt: d.created_at,
+        observations: d.observations
       })) as MedicalCertificate[];
     } catch (e) { return []; }
   },
 
   saveCertificate: async (cert: Partial<MedicalCertificate>) => {
-    // Sanitização final: Se as datas forem strings vazias, substitui por null para o Postgres
     const payload = {
       employee_id: cert.employeeId,
-      issue_date: cert.issueDate || null,
-      start_date: cert.startDate || null,
-      end_date: cert.endDate || null,
+      issue_date: cert.issueDate,
+      start_date: cert.startDate,
+      end_date: cert.endDate,
       days: cert.days,
       cid: cert.cid || null,
-      doctor_name: cert.doctorName || 'N/I',
-      crm: cert.crm || 'N/I',
-      type: cert.type || 'Doença',
-      file_path: cert.fileUrl || null
+      doctor_name: cert.doctorName,
+      crm: cert.crm,
+      type: cert.type,
+      file_path: cert.fileUrl || null,
+      observations: cert.observations || null
     };
 
     const query = cert.id && !cert.id.startsWith('demo-')
@@ -176,10 +177,7 @@ export const db = {
       : supabase.from('medical_certificates').insert([payload]);
 
     const { data, error } = await query.select();
-    if (error) {
-      console.error("Erro Supabase Save Certificate:", error);
-      throw new Error(`Erro no salvamento do atestado: ${error.message}`);
-    }
+    if (error) throw new Error(`Erro no salvamento do atestado: ${error.message}`);
     return data?.[0];
   }
 };
