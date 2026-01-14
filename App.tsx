@@ -45,16 +45,44 @@ const App: React.FC = () => {
   const loadAppData = React.useCallback(async (user: User) => {
     setIsLoadingData(true);
     try {
+      let allEmps: Employee[] = [];
+      let allCerts: MedicalCertificate[] = [];
+
       if (user.id === 'demo-user') {
         const localEmps = localStorage.getItem('medguard_demo_employees');
         const localCerts = localStorage.getItem('medguard_demo_certificates');
-        setEmployees(localEmps ? JSON.parse(localEmps) : []);
-        setCertificates(localCerts ? JSON.parse(localCerts) : []);
+        allEmps = localEmps ? JSON.parse(localEmps) : [];
+        allCerts = localCerts ? JSON.parse(localCerts) : [];
       } else {
         const [empData, certData] = await Promise.all([db.getEmployees(), db.getCertificates()]);
-        setEmployees(empData || []);
-        setCertificates(certData || []);
+        allEmps = empData || [];
+        allCerts = certData || [];
       }
+
+      // --- LOGICA DE FILTRO POR ESCOPO ---
+      // Se o usuário não for ADMIN global ou tiver restrições de CNPJ/Cidade
+      if (user.role !== UserRole.ADMIN || user.cnpj || user.city) {
+        // Filtra funcionários pelo CNPJ ou Cidade do usuário
+        const filteredEmps = allEmps.filter(emp => {
+          let match = true;
+          if (user.cnpj && emp.cnpj !== user.cnpj) match = false;
+          if (user.city && emp.city !== user.city) match = false;
+          return match;
+        });
+        
+        const validEmpIds = new Set(filteredEmps.map(e => e.id));
+        
+        // Filtra atestados que pertencem aos funcionários permitidos
+        const filteredCerts = allCerts.filter(cert => validEmpIds.has(cert.employeeId));
+
+        setEmployees(filteredEmps);
+        setCertificates(filteredCerts);
+      } else {
+        // ADMIN GLOBAL - Vê tudo
+        setEmployees(allEmps);
+        setCertificates(allCerts);
+      }
+      
     } catch (err) {
       console.error("Erro ao carregar dados:", err);
     } finally {
@@ -127,14 +155,13 @@ const App: React.FC = () => {
     setIsExporting(true);
     const doc = new jsPDF('landscape');
     
-    // Cabeçalho do Relatório
     doc.setFillColor(79, 70, 229); // Indigo-600
     doc.rect(0, 0, 297, 40, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
     doc.text('MedGuard - Relatório de Afastamentos', 15, 25);
     doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleString()}`, 15, 33);
+    doc.text(`Escopo: ${currentUser?.cnpj || currentUser?.city || 'Geral'} | Gerado em: ${new Date().toLocaleString()}`, 15, 33);
 
     const tableData = certificates.map(c => {
       const emp = employees.find(e => e.id === c.employeeId);
@@ -158,7 +185,7 @@ const App: React.FC = () => {
       alternateRowStyles: { fillColor: [245, 247, 250] },
       styles: { fontSize: 8 },
       columnStyles: {
-        7: { cellWidth: 60 } // Largura maior para observações
+        7: { cellWidth: 60 }
       }
     });
 
@@ -173,6 +200,8 @@ const App: React.FC = () => {
         'Funcionário': emp?.name,
         'Matrícula': emp?.registration,
         'Setor': emp?.department,
+        'Unidade/CNPJ': emp?.cnpj,
+        'Cidade': emp?.city,
         'Data Início': c.startDate,
         'Data Término': c.endDate,
         'Dias': c.days,
@@ -219,7 +248,7 @@ const App: React.FC = () => {
           onDelete={async (id) => { if(window.confirm("Deseja realmente excluir este funcionário?")) { await db.deleteEmployee(id); loadAppData(currentUser!); } }}
           onView={(id) => setActiveTab('certificates')}
           onBulkImport={async (list) => { for(const e of list) await db.saveEmployee(e); loadAppData(currentUser!); }}
-          isAdmin={isAdminUser}
+          isAdmin={isAdminUser || currentUser?.cnpj !== undefined || currentUser?.city !== undefined}
         />
       );
       case 'certificates': return (
@@ -227,33 +256,23 @@ const App: React.FC = () => {
            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
               <div>
                 <h2 className="text-2xl font-black text-slate-800 tracking-tight">Prontuário de Atestados</h2>
-                <p className="text-xs text-slate-500 font-medium">Histórico clínico e documentos anexados.</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  Escopo: {currentUser?.cnpj || currentUser?.city || 'Acesso Global'}
+                </p>
               </div>
               <div className="flex items-center gap-3">
                 <div className="hidden sm:flex items-center bg-white rounded-2xl p-1 border border-slate-200 shadow-sm">
-                  <button 
-                    onClick={handlePrintSystem} 
-                    className="p-3 text-slate-500 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-all" 
-                    title="Imprimir Lista"
-                  >
+                  <button onClick={handlePrintSystem} className="p-3 text-slate-500 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-all" title="Imprimir Lista">
                     <Printer size={20} />
                   </button>
-                  <button 
-                    onClick={handleExportExcel} 
-                    className="p-3 text-slate-500 hover:text-emerald-600 hover:bg-slate-50 rounded-xl transition-all" 
-                    title="Exportar Excel"
-                  >
+                  <button onClick={handleExportExcel} className="p-3 text-slate-500 hover:text-emerald-600 hover:bg-slate-50 rounded-xl transition-all" title="Exportar Excel">
                     <FileSpreadsheet size={20} />
                   </button>
                 </div>
                 
-                <button 
-                  onClick={handleExportPDF} 
-                  disabled={isExporting}
-                  className="hidden lg:flex items-center gap-2 border border-slate-200 bg-white text-slate-600 px-6 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all active:scale-95"
-                >
+                <button onClick={handleExportPDF} disabled={isExporting} className="hidden lg:flex items-center gap-2 border border-slate-200 bg-white text-slate-600 px-6 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all active:scale-95">
                    {isExporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />} 
-                   Gerar Relatório PDF
+                   PDF Export
                 </button>
 
                 <button onClick={() => { setCurrentEdit(undefined); setIsFormOpen(true); }} className="bg-indigo-600 text-white px-7 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95">
@@ -262,66 +281,58 @@ const App: React.FC = () => {
               </div>
            </div>
            
-           {/* Cabeçalho de Impressão para Atestados */}
-           <div className="hidden print:block mb-6 border-b-2 border-slate-900 pb-2">
-             <h1 className="text-xl font-black uppercase">Relatório de Atestados - MedGuard</h1>
-             <p className="text-[10px] font-bold">Extraído em: {new Date().toLocaleString('pt-BR')}</p>
-           </div>
-
-           <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden border-white/40">
+           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-[10px] uppercase text-slate-500 font-black border-b border-slate-100">
+                <thead className="bg-slate-50 text-[10px] uppercase text-slate-400 font-black border-b border-slate-100">
                   <tr>
-                    <th className="px-8 py-5">Funcionário</th>
+                    <th className="px-8 py-5">Colaborador / Unidade</th>
                     <th className="px-8 py-5">Período</th>
                     <th className="px-8 py-5">CID</th>
-                    <th className="px-8 py-5 print:hidden">Anexo</th>
-                    <th className="px-8 py-5 print:hidden">Ações</th>
+                    <th className="px-8 py-5 print:hidden text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {certificates.map(c => {
                     const emp = employees.find(e => e.id === c.employeeId);
                     return (
-                      <tr key={c.id} className="hover:bg-slate-50 group cursor-pointer transition-colors" onClick={() => { setCurrentEdit(c); setIsFormOpen(true); }}>
+                      <tr key={c.id} className="hover:bg-slate-50/50 group cursor-pointer transition-colors" onClick={() => { setCurrentEdit(c); setIsFormOpen(true); }}>
                         <td className="px-8 py-5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-xs print:hidden">
+                          <div className="flex items-center gap-4">
+                            <div className="w-9 h-9 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-xs">
                               {emp?.name.charAt(0) || '?'}
                             </div>
                             <div>
-                              <p className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
-                                {emp?.name || 'Não vinculado'}
-                                {c.fileUrl && <Paperclip size={14} className="text-indigo-400 print:hidden" />}
-                              </p>
-                              <p className="text-[10px] text-slate-400 font-mono">{emp?.registration || '---'}</p>
+                              <p className="font-black text-slate-900 group-hover:text-indigo-600 transition-colors">{emp?.name || 'Não vinculado'}</p>
+                              <div className="flex gap-2 items-center">
+                                <p className="text-[10px] text-slate-400 font-mono">{emp?.registration}</p>
+                                <span className="w-1 h-1 rounded-full bg-slate-200" />
+                                <p className="text-[9px] text-slate-400 font-bold uppercase">{emp?.city || emp?.cnpj || 'Unidade Geral'}</p>
+                              </div>
                             </div>
                           </div>
                         </td>
                         <td className="px-8 py-5">
-                          <p className="font-bold text-slate-600 text-xs">{new Date(c.startDate).toLocaleDateString()} — {new Date(c.endDate).toLocaleDateString()}</p>
+                          <p className="font-black text-slate-700 text-xs">{new Date(c.startDate).toLocaleDateString()} — {new Date(c.endDate).toLocaleDateString()}</p>
                           <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">{c.days} dias</p>
                         </td>
                         <td className="px-8 py-5">
-                          <span className="text-indigo-600 font-black text-[10px] tracking-wider bg-indigo-50 px-3 py-1.5 rounded-lg print:border print:border-indigo-100">
+                          <span className="text-indigo-600 font-black text-[10px] tracking-wider bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
                             {c.cid || 'N/I'}
                           </span>
                         </td>
-                        <td className="px-8 py-5 print:hidden">
-                          {c.fileUrl ? (
-                            <span className="text-emerald-600 font-black text-[10px] uppercase">Possui Anexo</span>
-                          ) : (
-                            <span className="text-slate-300 text-[10px] font-bold italic">Sem documento</span>
-                          )}
-                        </td>
-                        <td className="px-8 py-5 print:hidden">
-                          <button className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
+                        <td className="px-8 py-5 print:hidden text-right">
+                          <button className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-xl transition-all shadow-sm border border-transparent hover:border-slate-100">
                             <Eye size={18} />
                           </button>
                         </td>
                       </tr>
                     );
                   })}
+                  {certificates.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-8 py-20 text-center italic text-slate-300 font-bold text-xs uppercase tracking-widest">Nenhum registro encontrado neste escopo.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
            </div>
@@ -337,7 +348,7 @@ const App: React.FC = () => {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 gap-4">
         <Loader2 className="animate-spin text-white" size={48} />
-        <p className="text-slate-400 font-black uppercase tracking-widest text-xs">Iniciando MedGuard...</p>
+        <p className="text-slate-400 font-black uppercase tracking-widest text-xs">Acessando Camada Segura...</p>
       </div>
     );
   }
@@ -352,8 +363,8 @@ const App: React.FC = () => {
             <CheckCircle2 size={24} />
           </div>
           <div>
-            <p className="text-[11px] font-black uppercase tracking-widest">Sucesso</p>
-            <p className="text-[10px] text-slate-400 font-bold">Os dados foram sincronizados com segurança.</p>
+            <p className="text-[11px] font-black uppercase tracking-widest">Sincronizado</p>
+            <p className="text-[10px] text-slate-400 font-bold">Base de dados atualizada com sucesso.</p>
           </div>
         </div>
       )}

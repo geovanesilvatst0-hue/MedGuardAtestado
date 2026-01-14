@@ -35,7 +35,6 @@ export const db = {
     if (uploadError) {
       console.error("Erro no Storage:", uploadError);
       
-      // Detecção de erro de RLS (Permissões)
       if (uploadError.message?.includes("row-level security policy") || (uploadError as any).statusCode === "403") {
         throw new Error(`PERMISSÃO NEGADA (RLS): O bucket existe, mas o banco de dados bloqueou o envio. 
         COMO RESOLVER: Vá no SQL Editor do Supabase e execute:
@@ -75,13 +74,42 @@ export const db = {
     try {
       const { data, error } = await supabase.from('profiles').select('*').order('name');
       if (error) throw error;
-      return data.map(u => ({ ...u, createdAt: u.created_at, lastLogin: u.last_login })) as User[];
+      return data.map(u => ({ 
+        ...u, 
+        createdAt: u.created_at, 
+        lastLogin: u.last_login 
+      })) as User[];
     } catch (e) { return []; }
   },
 
   saveUser: async (user: Partial<User>) => {
-    const { data, error } = await supabase.from('profiles').update(user).eq('id', user.id).select();
-    if (error) throw error;
+    // Determina se é criação ou atualização
+    // Se o ID começa com 'user-' (gerado no front) ou não existe, é um novo registro
+    const isNew = !user.id || user.id.startsWith('user-');
+    
+    const payload = {
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      active: user.active,
+      cnpj: user.cnpj || null,
+      city: user.city || null
+    };
+
+    let query;
+    if (isNew) {
+      query = supabase.from('profiles').insert([{ ...payload, id: user.id }]);
+    } else {
+      query = supabase.from('profiles').update(payload).eq('id', user.id);
+    }
+
+    const { data, error } = await query.select();
+    
+    if (error) {
+      console.error("Erro ao salvar usuário:", error);
+      throw new Error(`Erro ao salvar usuário: ${error.message}`);
+    }
+    
     return data?.[0] as User;
   },
 
@@ -89,7 +117,7 @@ export const db = {
     if (!isConfigured) return;
     try {
       await supabase.from('audit_logs').insert([{
-        actor_id: log.userId === 'demo-user' ? null : log.userId,
+        actor_id: log.userId === 'demo-user' || log.userId === 'ADMIN' ? null : log.userId,
         action: log.action,
         details: log.details,
         entity: 'system'
@@ -101,7 +129,14 @@ export const db = {
     try {
       const { data, error } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50);
       if (error) return [];
-      return data.map(d => ({ id: d.id, userId: d.actor_id || 'SYSTEM', userName: 'Admin', action: d.action, details: d.details, timestamp: d.created_at }));
+      return data.map(d => ({ 
+        id: d.id, 
+        userId: d.actor_id || 'SYSTEM', 
+        userName: 'Admin', 
+        action: d.action, 
+        details: d.details, 
+        timestamp: d.created_at 
+      }));
     } catch (e) { return []; }
   },
 
@@ -119,7 +154,9 @@ export const db = {
       cpf: employee.cpf, 
       registration: employee.registration, 
       department: employee.department, 
-      role: employee.role 
+      role: employee.role,
+      cnpj: employee.cnpj || null,
+      city: employee.city || null
     };
     const query = employee.id && !employee.id.startsWith('demo-') 
       ? supabase.from('employees').update(payload).eq('id', employee.id) 
@@ -158,7 +195,7 @@ export const db = {
   },
 
   saveCertificate: async (cert: Partial<MedicalCertificate>) => {
-    const payload = {
+    const payload: any = {
       employee_id: cert.employeeId,
       issue_date: cert.issueDate,
       start_date: cert.startDate,
@@ -177,7 +214,16 @@ export const db = {
       : supabase.from('medical_certificates').insert([payload]);
 
     const { data, error } = await query.select();
-    if (error) throw new Error(`Erro no salvamento do atestado: ${error.message}`);
+    
+    if (error) {
+      if (error.message.includes("column 'observations' of relation 'medical_certificates' does not exist") || 
+          error.message.includes("observations' column of 'medical_certificates' in the schema cache")) {
+        throw new Error(`ERRO DE BANCO: A coluna 'observations' não existe na tabela 'medical_certificates'.
+        COMO RESOLVER: No Supabase SQL Editor, execute:
+        ALTER TABLE medical_certificates ADD COLUMN observations TEXT;`);
+      }
+      throw new Error(`Erro no salvamento do atestado: ${error.message}`);
+    }
     return data?.[0];
   }
 };

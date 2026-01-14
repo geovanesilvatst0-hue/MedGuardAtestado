@@ -17,6 +17,8 @@ export interface User {
   active: boolean;
   createdAt: string;
   lastLogin?: string;
+  cnpj?: string;
+  city?: string;
 }
 
 export interface AuditLog {
@@ -35,7 +37,6 @@ export enum CertificateStatus {
   PENDING = 'PENDING'
 }
 
-// Added missing ConfidenceLevel type exported for CertificateForm.tsx
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
 export interface ExtractionConfidence {
@@ -58,6 +59,8 @@ export interface Employee {
   department: string;
   role: string;
   createdAt: string;
+  cnpj?: string;
+  city?: string;
 }
 
 export interface MedicalCertificate {

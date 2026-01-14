@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { X, Save, User, CreditCard, Building2, Briefcase, Hash } from 'lucide-react';
+import { X, Save, User, CreditCard, Building2, Briefcase, Hash, MapPin } from 'lucide-react';
 import { Employee } from '../types';
 
 interface EmployeeFormProps {
@@ -17,6 +17,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({ onClose, onSave, initialDat
       registration: '',
       department: '',
       role: '',
+      cnpj: '',
+      city: ''
     }
   );
 
@@ -31,108 +33,78 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({ onClose, onSave, initialDat
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[110] backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800">
-            {initialData ? 'Editar Funcionário' : 'Novo Funcionário'}
-          </h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-50 rounded-lg transition-colors">
-            <X size={20} />
+    <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-[110] backdrop-blur-md">
+      <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-black text-slate-800 tracking-tight">
+              {initialData ? 'Editar Funcionário' : 'Novo Prontuário'}
+            </h2>
+            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">Gestão de Dados do Colaborador</p>
+          </div>
+          <button onClick={onClose} className="p-3 text-slate-400 hover:bg-slate-50 rounded-2xl transition-all">
+            <X size={24} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">Nome Completo *</label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                required
-                name="name"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                value={formData.name}
-                onChange={handleChange}
-                placeholder="Ex: João Silva"
-              />
+        <form onSubmit={handleSubmit} className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          <div className="space-y-4">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Informações Pessoais</label>
+            <div className="relative group">
+              <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={20} />
+              <input required name="name" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none transition-all"
+                value={formData.name} onChange={handleChange} placeholder="Nome completo do funcionário" />
             </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">CPF *</label>
-              <div className="relative">
-                <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  required
-                  name="cpf"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                  value={formData.cpf}
-                  onChange={handleChange}
-                  placeholder="000.000.000-00"
-                />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="relative group">
+                <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={20} />
+                <input required name="cpf" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
+                  value={formData.cpf} onChange={handleChange} placeholder="CPF (Apenas números)" />
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Matrícula *</label>
-              <div className="relative">
-                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  required
-                  name="registration"
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                  value={formData.registration}
-                  onChange={handleChange}
-                  placeholder="MT-000"
-                />
+              <div className="relative group">
+                <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={20} />
+                <input required name="registration" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
+                  value={formData.registration} onChange={handleChange} placeholder="Matrícula" />
               </div>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">Setor / Departamento *</label>
-            <div className="relative">
-              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                required
-                name="department"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                value={formData.department}
-                onChange={handleChange}
-                placeholder="Ex: Recursos Humanos"
-              />
+          <div className="space-y-4 pt-4 border-t border-slate-100">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Lotação e Unidade</label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="relative group">
+                <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={20} />
+                <input required name="department" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
+                  value={formData.department} onChange={handleChange} placeholder="Setor / Depto" />
+              </div>
+              <div className="relative group">
+                <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={20} />
+                <input required name="role" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
+                  value={formData.role} onChange={handleChange} placeholder="Cargo" />
+              </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="relative group">
+                <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                <input name="cnpj" className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
+                  value={formData.cnpj} onChange={handleChange} placeholder="CNPJ da Unidade" />
+              </div>
+              <div className="relative group">
+                <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                <input name="city" className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
+                  value={formData.city} onChange={handleChange} placeholder="Cidade" />
+              </div>
+            </div>
+            <p className="text-[9px] text-slate-400 font-bold italic text-center">Os campos de CNPJ e Cidade definem quem terá acesso a este funcionário.</p>
           </div>
 
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">Cargo *</label>
-            <div className="relative">
-              <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                required
-                name="role"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                value={formData.role}
-                onChange={handleChange}
-                placeholder="Ex: Analista Pleno"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-6 py-2.5 text-slate-600 font-bold hover:bg-slate-50 rounded-xl transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className="px-8 py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95"
-            >
-              <Save size={18} />
-              Salvar
+          <div className="flex items-center justify-end gap-4 pt-8 border-t border-slate-100">
+            <button type="button" onClick={onClose} className="px-8 py-4 text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600">Cancelar</button>
+            <button type="submit" className="px-12 py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-indigo-100 hover:bg-indigo-700 hover:-translate-y-1 transition-all flex items-center gap-3 active:scale-95">
+              <Save size={20} />
+              Confirmar Cadastro
             </button>
           </div>
         </form>
