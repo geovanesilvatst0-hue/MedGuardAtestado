@@ -65,7 +65,6 @@ export const db = {
     if (isNew) {
       if (!user.email || !user.password) throw new Error("E-mail e senha são obrigatórios para novos usuários.");
       
-      // 1. Cria a conta no Supabase Auth usando o cliente secundário (para não deslogar o admin)
       const secondaryClient = createSecondaryClient();
       const { data: authData, error: authError } = await secondaryClient.auth.signUp({
         email: user.email,
@@ -83,7 +82,6 @@ export const db = {
       finalId = authData.user.id;
     }
 
-    // 2. Salva ou atualiza o Perfil (profiles) com o ID correto do Auth
     const payload = {
       id: finalId,
       name: user.name,
@@ -99,12 +97,16 @@ export const db = {
       .upsert([payload], { onConflict: 'id' })
       .select();
     
-    if (error) {
-      console.error("Erro no Perfil:", error);
-      throw new Error(`Erro ao salvar perfil: ${error.message}`);
-    }
-    
+    if (error) throw new Error(`Erro ao salvar perfil: ${error.message}`);
     return data?.[0] as User;
+  },
+
+  deleteUser: async (userId: string) => {
+    // Nota: Deletar do Auth requer privilégios de Admin via Edge Functions ou Service Role.
+    // Aqui deletamos o perfil para revogar acesso via RLS.
+    const { error } = await supabase.from('profiles').delete().eq('id', userId);
+    if (error) throw new Error(`Erro ao excluir perfil: ${error.message}`);
+    return true;
   },
 
   addLog: async (log: Omit<AuditLog, 'id' | 'timestamp'>) => {
