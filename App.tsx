@@ -60,21 +60,14 @@ const App: React.FC = () => {
       }
 
       // --- LOGICA DE FILTRO POR ESCOPO ---
-      // Se o usuário tiver restrições de Cidade (mesmo sendo ADMIN local)
       if (user.city) {
-        const filteredEmps = allEmps.filter(emp => {
-          let match = true;
-          if (user.city && emp.city !== user.city) match = false;
-          return match;
-        });
-        
+        const filteredEmps = allEmps.filter(emp => emp.city === user.city);
         const validEmpIds = new Set(filteredEmps.map(e => e.id));
         const filteredCerts = allCerts.filter(cert => validEmpIds.has(cert.employeeId));
 
         setEmployees(filteredEmps);
         setCertificates(filteredCerts);
       } else {
-        // ADMIN GLOBAL - Sem Cidade vinculado
         setEmployees(allEmps);
         setCertificates(allCerts);
       }
@@ -139,12 +132,21 @@ const App: React.FC = () => {
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 3000);
     } catch (err: any) {
-      alert(err.message);
+      throw err;
     }
   };
 
-  const handlePrintSystem = () => {
-    setTimeout(() => window.print(), 100);
+  const handleSaveEmployee = async (data: Partial<Employee>) => {
+    try {
+      await db.saveEmployee({ ...data, id: currentEmployeeEdit?.id }, isDemo);
+      await loadAppData(currentUser!);
+      setIsEmployeeFormOpen(false);
+      setCurrentEmployeeEdit(undefined);
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (err: any) {
+      throw err;
+    }
   };
 
   const handleExportPDF = () => {
@@ -213,9 +215,7 @@ const App: React.FC = () => {
       </div>
     );
 
-    // DETERMINA SE O USUÁRIO PODE EDITAR (ADMIN GLOBAL OU LOCAL)
     const canEdit = currentUser?.role === UserRole.ADMIN;
-    // DETERMINA SE É O ADMIN GLOBAL (PODE GERENCIAR USUÁRIOS)
     const isGlobalAdmin = currentUser?.role === UserRole.ADMIN && !currentUser.city;
 
     switch (activeTab) {
@@ -234,9 +234,9 @@ const App: React.FC = () => {
           employees={employees} 
           onAdd={() => { setCurrentEmployeeEdit(undefined); setIsEmployeeFormOpen(true); }}
           onEdit={(id) => { const e = employees.find(x => x.id === id); if(e) { setCurrentEmployeeEdit(e); setIsEmployeeFormOpen(true); } }}
-          onDelete={async (id) => { if(window.confirm("Excluir funcionário?")) { await db.deleteEmployee(id); loadAppData(currentUser!); } }}
+          onDelete={async (id) => { if(window.confirm("Excluir funcionário?")) { await db.deleteEmployee(id, isDemo); loadAppData(currentUser!); } }}
           onView={(id) => setActiveTab('certificates')}
-          onBulkImport={async (list) => { for(const e of list) await db.saveEmployee(e); loadAppData(currentUser!); }}
+          onBulkImport={async (list) => { for(const e of list) await db.saveEmployee(e, isDemo); loadAppData(currentUser!); }}
           isAdmin={canEdit} 
         />
       );
@@ -330,7 +330,7 @@ const App: React.FC = () => {
       )}
       {renderContent()}
       {isFormOpen && <CertificateForm employees={employees} onClose={() => setIsFormOpen(false)} onSave={handleSaveCertificate} initialData={currentEdit} />}
-      {isEmployeeFormOpen && <EmployeeForm onClose={() => setIsEmployeeFormOpen(false)} onSave={async (d) => { await db.saveEmployee(d); loadAppData(currentUser!); setIsEmployeeFormOpen(false); }} initialData={currentEmployeeEdit} />}
+      {isEmployeeFormOpen && <EmployeeForm onClose={() => setIsEmployeeFormOpen(false)} onSave={handleSaveEmployee} initialData={currentEmployeeEdit} />}
     </Layout>
   );
 };

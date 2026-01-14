@@ -151,7 +151,20 @@ export const db = {
     } catch (e) { return []; }
   },
 
-  saveEmployee: async (employee: Partial<Employee>) => {
+  saveEmployee: async (employee: Partial<Employee>, isDemo: boolean = false) => {
+    if (isDemo) {
+      const local = localStorage.getItem('medguard_demo_employees');
+      const employees = local ? JSON.parse(local) : [];
+      const newEmp = {
+        ...employee,
+        id: employee.id || `demo-emp-${Date.now()}`,
+        createdAt: employee.createdAt || new Date().toISOString()
+      };
+      const updated = employee.id ? employees.map((e: any) => e.id === employee.id ? newEmp : e) : [newEmp, ...employees];
+      localStorage.setItem('medguard_demo_employees', JSON.stringify(updated));
+      return newEmp;
+    }
+
     const payload = { 
       name: employee.name, 
       cpf: employee.cpf, 
@@ -166,11 +179,23 @@ export const db = {
       : supabase.from('employees').insert([payload]);
     
     const { data, error } = await query.select();
-    if (error) throw new Error(`Erro ao salvar funcionário: ${error.message}`);
+    if (error) {
+      if (error.message.includes('unique_cpf')) throw new Error("Este CPF já está cadastrado.");
+      throw new Error(`Erro ao salvar funcionário: ${error.message}`);
+    }
     return data[0];
   },
 
-  deleteEmployee: async (id: string) => {
+  deleteEmployee: async (id: string, isDemo: boolean = false) => {
+    if (isDemo) {
+      const local = localStorage.getItem('medguard_demo_employees');
+      if (local) {
+        const employees = JSON.parse(local);
+        const updated = employees.filter((e: any) => e.id !== id);
+        localStorage.setItem('medguard_demo_employees', JSON.stringify(updated));
+      }
+      return;
+    }
     const { error } = await supabase.from('employees').delete().eq('id', id);
     if (error) throw error;
   },
