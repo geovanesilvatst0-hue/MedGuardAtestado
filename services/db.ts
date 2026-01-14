@@ -2,6 +2,14 @@
 import { supabase, isConfigured } from './supabase';
 import { Employee, MedicalCertificate, User, UserRole, AuditLog } from '../types';
 
+// Helper para gerar um ID compatível com UUID v4 para o Supabase
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 export const db = {
   checkConnection: async (): Promise<boolean> => {
     if (!isConfigured) return false;
@@ -34,25 +42,12 @@ export const db = {
 
     if (uploadError) {
       console.error("Erro no Storage:", uploadError);
-      
-      if (uploadError.message?.includes("row-level security policy") || (uploadError as any).statusCode === "403") {
-        throw new Error(`PERMISSÃO NEGADA (RLS): O bucket existe, mas o banco de dados bloqueou o envio. 
-        COMO RESOLVER: Vá no SQL Editor do Supabase e execute:
-        CREATE POLICY "Acesso Total" ON storage.objects FOR ALL TO authenticated USING (bucket_id = 'medguard-docs') WITH CHECK (bucket_id = 'medguard-docs');`);
-      }
-      
-      if (uploadError.message?.includes("Bucket not found")) {
-        throw new Error("CONFIGURAÇÃO NECESSÁRIA: O bucket 'medguard-docs' não foi encontrado. Crie-o na aba Storage do Supabase.");
-      }
-      
       throw new Error(`Falha ao subir arquivo: ${uploadError.message}`);
     }
 
     const { data } = supabase.storage
       .from('medguard-docs')
       .getPublicUrl(filePath);
-
-    if (!data?.publicUrl) throw new Error("Falha ao gerar URL pública do arquivo.");
 
     return data.publicUrl;
   },
@@ -83,31 +78,34 @@ export const db = {
   },
 
   saveUser: async (user: Partial<User>) => {
-    // Determina se é criação ou atualização
-    // Se o ID começa com 'user-' (gerado no front) ou não existe, é um novo registro
+    // Se o ID for novo (gerado pelo front), garantimos que seja um UUID válido
     const isNew = !user.id || user.id.startsWith('user-');
+    const finalId = isNew ? generateUUID() : user.id;
     
     const payload = {
+      id: finalId,
       name: user.name,
       email: user.email,
       role: user.role,
-      active: user.active,
+      active: user.active ?? true,
       cnpj: user.cnpj || null,
       city: user.city || null
     };
 
-    let query;
-    if (isNew) {
-      query = supabase.from('profiles').insert([{ ...payload, id: user.id }]);
-    } else {
-      query = supabase.from('profiles').update(payload).eq('id', user.id);
-    }
+    const query = isNew 
+      ? supabase.from('profiles').insert([payload])
+      : supabase.from('profiles').update(payload).eq('id', user.id);
 
     const { data, error } = await query.select();
     
     if (error) {
-      console.error("Erro ao salvar usuário:", error);
-      throw new Error(`Erro ao salvar usuário: ${error.message}`);
+      console.error("Erro Supabase Profiles:", error);
+      // Mensagens amigáveis para erros comuns
+      if (error.code === '23505') throw new Error("Este e-mail já está cadastrado no sistema.");
+      if (error.code === '42P01') throw new Error("A tabela 'profiles' não foi encontrada. Verifique o SQL Editor.");
+      if (error.code === '22P02') throw new Error("Erro de formato de dados (UUID). Verifique a coluna ID.");
+      
+      throw new Error(`Erro no banco de dados: ${error.message}`);
     }
     
     return data?.[0] as User;
@@ -117,7 +115,7 @@ export const db = {
     if (!isConfigured) return;
     try {
       await supabase.from('audit_logs').insert([{
-        actor_id: log.userId === 'demo-user' || log.userId === 'ADMIN' ? null : log.userId,
+        actor_id: log.userId === 'ADMIN' || log.userId.includes('user-') ? null : log.userId,
         action: log.action,
         details: log.details,
         entity: 'system'
@@ -158,9 +156,10 @@ export const db = {
       cnpj: employee.cnpj || null,
       city: employee.city || null
     };
-    const query = employee.id && !employee.id.startsWith('demo-') 
-      ? supabase.from('employees').update(payload).eq('id', employee.id) 
-      : supabase.from('employees').insert([payload]);
+    const isNew = !employee.id || employee.id.startsWith('demo-');
+    const query = isNew
+      ? supabase.from('employees').insert([payload])
+      : supabase.from('employees').update(payload).eq('id', employee.id);
     
     const { data, error } = await query.select();
     if (error) throw new Error(`Erro ao salvar funcionário: ${error.message}`);
@@ -209,21 +208,13 @@ export const db = {
       observations: cert.observations || null
     };
 
-    const query = cert.id && !cert.id.startsWith('demo-')
-      ? supabase.from('medical_certificates').update(payload).eq('id', cert.id)
-      : supabase.from('medical_certificates').insert([payload]);
+    const isNew = !cert.id || cert.id.startsWith('demo-');
+    const query = isNew
+      ? supabase.from('medical_certificates').insert([payload])
+      : supabase.from('medical_certificates').update(payload).eq('id', cert.id);
 
     const { data, error } = await query.select();
-    
-    if (error) {
-      if (error.message.includes("column 'observations' of relation 'medical_certificates' does not exist") || 
-          error.message.includes("observations' column of 'medical_certificates' in the schema cache")) {
-        throw new Error(`ERRO DE BANCO: A coluna 'observations' não existe na tabela 'medical_certificates'.
-        COMO RESOLVER: No Supabase SQL Editor, execute:
-        ALTER TABLE medical_certificates ADD COLUMN observations TEXT;`);
-      }
-      throw new Error(`Erro no salvamento do atestado: ${error.message}`);
-    }
+    if (error) throw new Error(`Erro no salvamento: ${error.message}`);
     return data?.[0];
   }
 };

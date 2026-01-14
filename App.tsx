@@ -11,7 +11,7 @@ import Login from './components/Login';
 import { db } from './services/db';
 import { supabase, isConfigured } from './services/supabase';
 import { Employee, MedicalCertificate, User, UserRole } from './types';
-import { FileText, Loader2, CheckCircle2, Eye, Paperclip, Download, Printer, FileSpreadsheet } from 'lucide-react';
+import { FileText, Loader2, CheckCircle2, Eye, Download, Printer, FileSpreadsheet } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -60,9 +60,8 @@ const App: React.FC = () => {
       }
 
       // --- LOGICA DE FILTRO POR ESCOPO ---
-      // Se o usuário não for ADMIN global ou tiver restrições de CNPJ/Cidade
-      if (user.role !== UserRole.ADMIN || user.cnpj || user.city) {
-        // Filtra funcionários pelo CNPJ ou Cidade do usuário
+      // Se o usuário tiver restrições de CNPJ/Cidade (mesmo sendo ADMIN local)
+      if (user.cnpj || user.city) {
         const filteredEmps = allEmps.filter(emp => {
           let match = true;
           if (user.cnpj && emp.cnpj !== user.cnpj) match = false;
@@ -71,14 +70,12 @@ const App: React.FC = () => {
         });
         
         const validEmpIds = new Set(filteredEmps.map(e => e.id));
-        
-        // Filtra atestados que pertencem aos funcionários permitidos
         const filteredCerts = allCerts.filter(cert => validEmpIds.has(cert.employeeId));
 
         setEmployees(filteredEmps);
         setCertificates(filteredCerts);
       } else {
-        // ADMIN GLOBAL - Vê tudo
+        // ADMIN GLOBAL - Sem CNPJ ou Cidade vinculado
         setEmployees(allEmps);
         setCertificates(allCerts);
       }
@@ -154,8 +151,7 @@ const App: React.FC = () => {
   const handleExportPDF = () => {
     setIsExporting(true);
     const doc = new jsPDF('landscape');
-    
-    doc.setFillColor(79, 70, 229); // Indigo-600
+    doc.setFillColor(79, 70, 229);
     doc.rect(0, 0, 297, 40, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
@@ -181,12 +177,9 @@ const App: React.FC = () => {
       startY: 50,
       head: [['Funcionário', 'Matrícula', 'Início', 'Término', 'Dias', 'CID', 'Tipo', 'Observações']],
       body: tableData,
-      headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
+      headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255] },
       alternateRowStyles: { fillColor: [245, 247, 250] },
       styles: { fontSize: 8 },
-      columnStyles: {
-        7: { cellWidth: 60 }
-      }
     });
 
     doc.save(`relatorio_atestados_${Date.now()}.pdf`);
@@ -200,19 +193,13 @@ const App: React.FC = () => {
         'Funcionário': emp?.name,
         'Matrícula': emp?.registration,
         'Setor': emp?.department,
-        'Unidade/CNPJ': emp?.cnpj,
-        'Cidade': emp?.city,
         'Data Início': c.startDate,
         'Data Término': c.endDate,
         'Dias': c.days,
         'CID': c.cid,
-        'Médico': c.doctorName,
-        'CRM': c.crm,
-        'Tipo': c.type,
-        'Observações': c.observations
+        'Tipo': c.type
       };
     });
-    
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Atestados");
@@ -227,7 +214,10 @@ const App: React.FC = () => {
       </div>
     );
 
-    const isAdminUser = currentUser?.role === UserRole.ADMIN;
+    // DETERMINA SE O USUÁRIO PODE EDITAR (ADMIN GLOBAL OU LOCAL)
+    const canEdit = currentUser?.role === UserRole.ADMIN;
+    // DETERMINA SE É O ADMIN GLOBAL (PODE GERENCIAR USUÁRIOS)
+    const isGlobalAdmin = currentUser?.role === UserRole.ADMIN && !currentUser.cnpj && !currentUser.city;
 
     switch (activeTab) {
       case 'dashboard': return (
@@ -245,10 +235,10 @@ const App: React.FC = () => {
           employees={employees} 
           onAdd={() => { setCurrentEmployeeEdit(undefined); setIsEmployeeFormOpen(true); }}
           onEdit={(id) => { const e = employees.find(x => x.id === id); if(e) { setCurrentEmployeeEdit(e); setIsEmployeeFormOpen(true); } }}
-          onDelete={async (id) => { if(window.confirm("Deseja realmente excluir este funcionário?")) { await db.deleteEmployee(id); loadAppData(currentUser!); } }}
+          onDelete={async (id) => { if(window.confirm("Excluir funcionário?")) { await db.deleteEmployee(id); loadAppData(currentUser!); } }}
           onView={(id) => setActiveTab('certificates')}
           onBulkImport={async (list) => { for(const e of list) await db.saveEmployee(e); loadAppData(currentUser!); }}
-          isAdmin={isAdminUser || currentUser?.cnpj !== undefined || currentUser?.city !== undefined}
+          isAdmin={canEdit} 
         />
       );
       case 'certificates': return (
@@ -257,27 +247,19 @@ const App: React.FC = () => {
               <div>
                 <h2 className="text-2xl font-black text-slate-800 tracking-tight">Prontuário de Atestados</h2>
                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                  Escopo: {currentUser?.cnpj || currentUser?.city || 'Acesso Global'}
+                  {currentUser?.role} {currentUser?.cnpj || currentUser?.city ? `— Escopo: ${currentUser.cnpj || currentUser.city}` : '— Acesso Global'}
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="hidden sm:flex items-center bg-white rounded-2xl p-1 border border-slate-200 shadow-sm">
-                  <button onClick={handlePrintSystem} className="p-3 text-slate-500 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-all" title="Imprimir Lista">
-                    <Printer size={20} />
-                  </button>
-                  <button onClick={handleExportExcel} className="p-3 text-slate-500 hover:text-emerald-600 hover:bg-slate-50 rounded-xl transition-all" title="Exportar Excel">
-                    <FileSpreadsheet size={20} />
-                  </button>
-                </div>
-                
                 <button onClick={handleExportPDF} disabled={isExporting} className="hidden lg:flex items-center gap-2 border border-slate-200 bg-white text-slate-600 px-6 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all active:scale-95">
-                   {isExporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />} 
-                   PDF Export
+                   {isExporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />} PDF Export
                 </button>
 
-                <button onClick={() => { setCurrentEdit(undefined); setIsFormOpen(true); }} className="bg-indigo-600 text-white px-7 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95">
-                  <FileText size={16} /> Novo Registro
-                </button>
+                {canEdit && (
+                  <button onClick={() => { setCurrentEdit(undefined); setIsFormOpen(true); }} className="bg-indigo-600 text-white px-7 py-3.5 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95">
+                    <FileText size={16} /> Novo Registro
+                  </button>
+                )}
               </div>
            </div>
            
@@ -303,11 +285,7 @@ const App: React.FC = () => {
                             </div>
                             <div>
                               <p className="font-black text-slate-900 group-hover:text-indigo-600 transition-colors">{emp?.name || 'Não vinculado'}</p>
-                              <div className="flex gap-2 items-center">
-                                <p className="text-[10px] text-slate-400 font-mono">{emp?.registration}</p>
-                                <span className="w-1 h-1 rounded-full bg-slate-200" />
-                                <p className="text-[9px] text-slate-400 font-bold uppercase">{emp?.city || emp?.cnpj || 'Unidade Geral'}</p>
-                              </div>
+                              <p className="text-[10px] text-slate-400 font-mono">{emp?.registration} • {emp?.city || emp?.cnpj || 'Unidade Geral'}</p>
                             </div>
                           </div>
                         </td>
@@ -328,30 +306,18 @@ const App: React.FC = () => {
                       </tr>
                     );
                   })}
-                  {certificates.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-8 py-20 text-center italic text-slate-300 font-bold text-xs uppercase tracking-widest">Nenhum registro encontrado neste escopo.</td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
            </div>
         </div>
       );
       case 'alerts': return <Alerts employees={employees} certificates={certificates} onManage={(c) => { setCurrentEdit(c); setIsFormOpen(true); }} />;
-      case 'users': return isAdminUser ? <UserManagement /> : null;
+      case 'users': return isGlobalAdmin ? <UserManagement /> : null;
       default: return null;
     }
   };
 
-  if (isInitializing) {
-    return (
-      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 gap-4">
-        <Loader2 className="animate-spin text-white" size={48} />
-        <p className="text-slate-400 font-black uppercase tracking-widest text-xs">Acessando Camada Segura...</p>
-      </div>
-    );
-  }
+  if (isInitializing) return <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 gap-4"><Loader2 className="animate-spin text-white" size={48} /></div>;
 
   if (!currentUser) return <Login onLogin={handleLogin} />;
 
@@ -359,13 +325,8 @@ const App: React.FC = () => {
     <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={currentUser} onLogout={handleLogout} alertCount={alertCount}>
       {showSuccessToast && (
         <div className="fixed bottom-10 right-10 z-[200] bg-slate-900 text-white px-8 py-5 rounded-[2rem] shadow-2xl flex items-center gap-5 border border-white/10 animate-in slide-in-from-bottom-10">
-          <div className="bg-emerald-500 p-2 rounded-xl">
-            <CheckCircle2 size={24} />
-          </div>
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-widest">Sincronizado</p>
-            <p className="text-[10px] text-slate-400 font-bold">Base de dados atualizada com sucesso.</p>
-          </div>
+          <div className="bg-emerald-500 p-2 rounded-xl"><CheckCircle2 size={24} /></div>
+          <div><p className="text-[11px] font-black uppercase tracking-widest">Sincronizado</p></div>
         </div>
       )}
       {renderContent()}

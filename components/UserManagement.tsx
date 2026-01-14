@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Plus, UserPlus, Shield, Mail, Key, Trash2, CheckCircle, XCircle, Activity, Loader2, X, Building2, MapPin, Save } from 'lucide-react';
+import { UserPlus, Shield, Key, Trash2, CheckCircle, XCircle, Activity, Loader2, X, Building2, MapPin, Save, AlertCircle } from 'lucide-react';
 import { db } from '../services/db';
 import { User, UserRole, AuditLog } from '../types';
 
@@ -10,6 +10,7 @@ const UserManagement: React.FC = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const [formData, setFormData] = React.useState({
     name: '',
@@ -39,28 +40,28 @@ const UserManagement: React.FC = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    setError(null);
     try {
-      // Simulação de criação no profiles (em produção requer auth.signUp)
       const newUser = {
         ...formData,
-        id: `user-${Date.now()}`,
+        id: `user-${Date.now()}`, // O db.ts vai converter isso para UUID se necessário
         active: true,
-        createdAt: new Date().toISOString()
       };
       
       await db.saveUser(newUser as any);
+      
       await db.addLog({
         userId: 'ADMIN',
         userName: 'Administrador',
         action: 'USER_CREATE',
-        details: `Novo usuário ${formData.email} criado com escopo: ${formData.cnpj || formData.city || 'Global'}`
+        details: `Novo usuário ${formData.email} criado. Perfil: ${formData.role}. Escopo: ${formData.cnpj || formData.city || 'Global'}`
       });
       
       setIsModalOpen(false);
       setFormData({ name: '', email: '', role: UserRole.VIEWER, cnpj: '', city: '' });
       loadData();
-    } catch (err) {
-      alert("Erro ao criar usuário.");
+    } catch (err: any) {
+      setError(err.message || "Não foi possível criar o usuário.");
     } finally {
       setIsSaving(false);
     }
@@ -82,7 +83,7 @@ const UserManagement: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
         <Loader2 className="animate-spin text-indigo-600" size={32} />
-        <p className="text-slate-500 font-medium">Sincronizando base de usuários...</p>
+        <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Acessando Diretório de Usuários...</p>
       </div>
     );
   }
@@ -92,10 +93,10 @@ const UserManagement: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">Controle de Acessos</h2>
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Segurança & Governança de Dados</p>
+          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Segurança & Governança • LGPD Compliance</p>
         </div>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => { setError(null); setIsModalOpen(true); }}
           className="flex items-center gap-2 px-6 py-3.5 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95"
         >
           <UserPlus size={16} />
@@ -109,10 +110,10 @@ const UserManagement: React.FC = () => {
             <table className="w-full text-left">
               <thead className="bg-slate-50 text-[10px] uppercase text-slate-400 font-black border-b border-slate-100">
                 <tr>
-                  <th className="px-8 py-4">Identificação</th>
-                  <th className="px-8 py-4">Escopo de Acesso</th>
-                  <th className="px-8 py-4 text-center">Status</th>
-                  <th className="px-8 py-4 text-right">Ações</th>
+                  <th className="px-8 py-5">Identificação</th>
+                  <th className="px-8 py-5">Escopo de Acesso</th>
+                  <th className="px-8 py-5 text-center">Status</th>
+                  <th className="px-8 py-5 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
@@ -138,9 +139,9 @@ const UserManagement: React.FC = () => {
                           {u.role}
                         </span>
                         {(u.cnpj || u.city) ? (
-                          <div className="flex gap-2">
-                            {u.cnpj && <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1"><Building2 size={10}/> {u.cnpj}</span>}
-                            {u.city && <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1"><MapPin size={10}/> {u.city}</span>}
+                          <div className="flex flex-wrap gap-2">
+                            {u.cnpj && <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md"><Building2 size={10}/> {u.cnpj}</span>}
+                            {u.city && <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md"><MapPin size={10}/> {u.city}</span>}
                           </div>
                         ) : (
                           <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest italic">Acesso Global</span>
@@ -189,13 +190,11 @@ const UserManagement: React.FC = () => {
                   <p className="text-[9px] text-white/50 leading-relaxed italic">"{log.details}"</p>
                 </div>
               ))}
-              {logs.length === 0 && <p className="text-center py-10 text-white/20 text-[10px] font-black uppercase tracking-widest">Nenhum log disponível.</p>}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Modal de Criação de Usuário */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-[150] animate-in fade-in duration-300">
           <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -210,7 +209,14 @@ const UserManagement: React.FC = () => {
             </div>
 
             <form onSubmit={handleCreateUser} className="p-8 space-y-6">
-              <div className="grid grid-cols-1 gap-6">
+              {error && (
+                <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3 text-rose-800 text-[11px] font-bold animate-in slide-in-from-top-2">
+                  <AlertCircle size={18} className="shrink-0" />
+                  {error}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-5">
                 <div className="space-y-1.5">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Completo</label>
                   <input required type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none" 
@@ -223,10 +229,10 @@ const UserManagement: React.FC = () => {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Papel no Sistema</label>
-                  <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50" 
+                  <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black focus:ring-4 focus:ring-indigo-50" 
                     value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
-                    <option value={UserRole.VIEWER}>Visualizador (Acesso Restrito)</option>
-                    <option value={UserRole.ADMIN}>Administrador (Acesso Total)</option>
+                    <option value={UserRole.VIEWER}>Visualizador (Somente Leitura)</option>
+                    <option value={UserRole.ADMIN}>Administrador (Pode Editar/Excluir)</option>
                   </select>
                 </div>
               </div>
@@ -248,7 +254,7 @@ const UserManagement: React.FC = () => {
                       value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} placeholder="Ex: São Paulo" />
                   </div>
                 </div>
-                <p className="text-[8px] text-slate-400 font-bold italic text-center">Deixe em branco para que o usuário veja todos os dados do sistema.</p>
+                <p className="text-[8px] text-slate-400 font-bold italic text-center">Deixe em branco para acesso total a todos os dados.</p>
               </div>
 
               <div className="flex items-center justify-end gap-4 pt-4">
