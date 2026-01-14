@@ -49,7 +49,10 @@ export const db = {
   getUsers: async (): Promise<User[]> => {
     try {
       const { data, error } = await supabase.from('profiles').select('*').order('name');
-      if (error) throw error;
+      if (error) {
+        console.error("Erro ao buscar usuários:", error);
+        throw error;
+      }
       return data.map(u => ({ 
         ...u, 
         createdAt: u.created_at, 
@@ -63,7 +66,7 @@ export const db = {
     let finalId = user.id;
 
     if (isNew) {
-      if (!user.email || !user.password) throw new Error("E-mail e senha são obrigatórios para novos usuários.");
+      if (!user.email || !user.password) throw new Error("E-mail e senha são obrigatórios.");
       
       const secondaryClient = createSecondaryClient();
       const { data: authData, error: authError } = await secondaryClient.auth.signUp({
@@ -73,12 +76,12 @@ export const db = {
 
       if (authError) {
         if (authError.message.includes("already registered")) {
-          throw new Error("Este e-mail já possui uma conta de acesso no sistema.");
+          throw new Error("E-mail já cadastrado.");
         }
-        throw new Error(`Erro ao criar conta de acesso: ${authError.message}`);
+        throw new Error(`Auth Error: ${authError.message}`);
       }
 
-      if (!authData.user) throw new Error("Falha ao gerar ID de autenticação.");
+      if (!authData.user) throw new Error("Falha na criação da conta.");
       finalId = authData.user.id;
     }
 
@@ -88,22 +91,26 @@ export const db = {
       email: user.email,
       role: user.role,
       active: user.active ?? true,
-      cnpj: user.cnpj || null,
       city: user.city || null
     };
 
-    const { data, error } = await supabase
+    const { data, error: dbError } = await supabase
       .from('profiles')
       .upsert([payload], { onConflict: 'id' })
       .select();
     
-    if (error) throw new Error(`Erro ao salvar perfil: ${error.message}`);
+    if (dbError) {
+      console.error("DB Error Details:", dbError);
+      if (dbError.message.includes('recursion')) {
+        throw new Error("Erro de Segurança (Recursão). Rode o SQL da função 'is_admin'.");
+      }
+      throw new Error(`Erro no Banco: ${dbError.message}`);
+    }
+    
     return data?.[0] as User;
   },
 
   deleteUser: async (userId: string) => {
-    // Nota: Deletar do Auth requer privilégios de Admin via Edge Functions ou Service Role.
-    // Aqui deletamos o perfil para revogar acesso via RLS.
     const { error } = await supabase.from('profiles').delete().eq('id', userId);
     if (error) throw new Error(`Erro ao excluir perfil: ${error.message}`);
     return true;
@@ -113,7 +120,7 @@ export const db = {
     if (!isConfigured) return;
     try {
       await supabase.from('audit_logs').insert([{
-        actor_id: log.userId === 'ADMIN' || log.userId.includes('user-') ? null : log.userId,
+        actor_id: log.userId === 'ADMIN_GLOBAL' ? null : log.userId,
         action: log.action,
         details: log.details,
         entity: 'system'
@@ -151,10 +158,9 @@ export const db = {
       registration: employee.registration, 
       department: employee.department, 
       role: employee.role,
-      cnpj: employee.cnpj || null,
       city: employee.city || null
     };
-    const isUpdate = employee.id && !employee.id.startsWith('demo-');
+    const isUpdate = employee.id && !employee.id.startsWith('demo-') && !employee.id.startsWith('temp-');
     const query = isUpdate
       ? supabase.from('employees').update(payload).eq('id', employee.id)
       : supabase.from('employees').insert([payload]);
@@ -205,7 +211,7 @@ export const db = {
       file_path: cert.fileUrl || null,
       observations: cert.observations || null
     };
-    const isUpdate = cert.id && !cert.id.startsWith('demo-');
+    const isUpdate = cert.id && !cert.id.startsWith('demo-') && !cert.id.startsWith('temp-');
     const query = isUpdate
       ? supabase.from('medical_certificates').update(payload).eq('id', cert.id)
       : supabase.from('medical_certificates').insert([payload]);

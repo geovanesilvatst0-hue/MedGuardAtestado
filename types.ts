@@ -17,7 +17,6 @@ export interface User {
   active: boolean;
   createdAt: string;
   lastLogin?: string;
-  cnpj?: string;
   city?: string;
 }
 
@@ -59,7 +58,6 @@ export interface Employee {
   department: string;
   role: string;
   createdAt: string;
-  cnpj?: string;
   city?: string;
 }
 

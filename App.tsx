@@ -60,11 +60,10 @@ const App: React.FC = () => {
       }
 
       // --- LOGICA DE FILTRO POR ESCOPO ---
-      // Se o usuário tiver restrições de CNPJ/Cidade (mesmo sendo ADMIN local)
-      if (user.cnpj || user.city) {
+      // Se o usuário tiver restrições de Cidade (mesmo sendo ADMIN local)
+      if (user.city) {
         const filteredEmps = allEmps.filter(emp => {
           let match = true;
-          if (user.cnpj && emp.cnpj !== user.cnpj) match = false;
           if (user.city && emp.city !== user.city) match = false;
           return match;
         });
@@ -75,7 +74,7 @@ const App: React.FC = () => {
         setEmployees(filteredEmps);
         setCertificates(filteredCerts);
       } else {
-        // ADMIN GLOBAL - Sem CNPJ ou Cidade vinculado
+        // ADMIN GLOBAL - Sem Cidade vinculado
         setEmployees(allEmps);
         setCertificates(allCerts);
       }
@@ -157,7 +156,7 @@ const App: React.FC = () => {
     doc.setFontSize(22);
     doc.text('MedGuard - Relatório de Afastamentos', 15, 25);
     doc.setFontSize(10);
-    doc.text(`Escopo: ${currentUser?.cnpj || currentUser?.city || 'Geral'} | Gerado em: ${new Date().toLocaleString()}`, 15, 33);
+    doc.text(`Escopo: ${currentUser?.city || 'Geral'} | Gerado em: ${new Date().toLocaleString()}`, 15, 33);
 
     const tableData = certificates.map(c => {
       const emp = employees.find(e => e.id === c.employeeId);
@@ -217,7 +216,7 @@ const App: React.FC = () => {
     // DETERMINA SE O USUÁRIO PODE EDITAR (ADMIN GLOBAL OU LOCAL)
     const canEdit = currentUser?.role === UserRole.ADMIN;
     // DETERMINA SE É O ADMIN GLOBAL (PODE GERENCIAR USUÁRIOS)
-    const isGlobalAdmin = currentUser?.role === UserRole.ADMIN && !currentUser.cnpj && !currentUser.city;
+    const isGlobalAdmin = currentUser?.role === UserRole.ADMIN && !currentUser.city;
 
     switch (activeTab) {
       case 'dashboard': return (
@@ -247,7 +246,7 @@ const App: React.FC = () => {
               <div>
                 <h2 className="text-2xl font-black text-slate-800 tracking-tight">Prontuário de Atestados</h2>
                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                  {currentUser?.role} {currentUser?.cnpj || currentUser?.city ? `— Escopo: ${currentUser.cnpj || currentUser.city}` : '— Acesso Global'}
+                  {currentUser?.role} {currentUser?.city ? `— Escopo: ${currentUser.city}` : '— Acesso Global'}
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -285,7 +284,7 @@ const App: React.FC = () => {
                             </div>
                             <div>
                               <p className="font-black text-slate-900 group-hover:text-indigo-600 transition-colors">{emp?.name || 'Não vinculado'}</p>
-                              <p className="text-[10px] text-slate-400 font-mono">{emp?.registration} • {emp?.city || emp?.cnpj || 'Unidade Geral'}</p>
+                              <p className="text-[10px] text-slate-400 font-mono">{emp?.registration} • {emp?.city || 'Unidade Geral'}</p>
                             </div>
                           </div>
                         </td>
@@ -331,7 +330,7 @@ const App: React.FC = () => {
       )}
       {renderContent()}
       {isFormOpen && <CertificateForm employees={employees} onClose={() => setIsFormOpen(false)} onSave={handleSaveCertificate} initialData={currentEdit} />}
-      {isEmployeeFormOpen && <EmployeeForm onClose={() => setIsEmployeeFormOpen(false)} onSave={async (d) => { await db.saveEmployee(d); loadAppData(currentUser); setIsEmployeeFormOpen(false); }} initialData={currentEmployeeEdit} />}
+      {isEmployeeFormOpen && <EmployeeForm onClose={() => setIsEmployeeFormOpen(false)} onSave={async (d) => { await db.saveEmployee(d); loadAppData(currentUser!); setIsEmployeeFormOpen(false); }} initialData={currentEmployeeEdit} />}
     </Layout>
   );
 };

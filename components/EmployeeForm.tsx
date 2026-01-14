@@ -9,6 +9,7 @@ interface EmployeeFormProps {
   initialData?: Employee;
 }
 
+// Fixed duplicate onClose identifier in destructuring
 const EmployeeForm: React.FC<EmployeeFormProps> = ({ onClose, onSave, initialData }) => {
   const [formData, setFormData] = React.useState<Partial<Employee>>(
     initialData || {
@@ -17,7 +18,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({ onClose, onSave, initialDat
       registration: '',
       department: '',
       role: '',
-      cnpj: '',
       city: ''
     }
   );
@@ -85,19 +85,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({ onClose, onSave, initialDat
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="relative group">
-                <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
-                <input name="cnpj" className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
-                  value={formData.cnpj} onChange={handleChange} placeholder="CNPJ da Unidade" />
-              </div>
-              <div className="relative group">
-                <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
-                <input name="city" className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
-                  value={formData.city} onChange={handleChange} placeholder="Cidade" />
-              </div>
+            <div className="relative group">
+              <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+              <input name="city" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all"
+                value={formData.city} onChange={handleChange} placeholder="Cidade de Atuação" />
             </div>
-            <p className="text-[9px] text-slate-400 font-bold italic text-center">Os campos de CNPJ e Cidade definem quem terá acesso a este funcionário.</p>
+            <p className="text-[9px] text-slate-400 font-bold italic text-center">O campo de Cidade define quem terá acesso a este funcionário no painel restrito.</p>
           </div>
 
           <div className="flex items-center justify-end gap-4 pt-8 border-t border-slate-100">

@@ -1,9 +1,8 @@
 
 import React from 'react';
-import { UserPlus, Shield, Key, Trash2, CheckCircle, XCircle, Activity, Loader2, X, Building2, MapPin, Save, AlertCircle, Eye, EyeOff, Lock, RefreshCw } from 'lucide-react';
+import { UserPlus, Shield, Key, Trash2, CheckCircle, XCircle, Activity, Loader2, X, MapPin, Save, AlertCircle, Eye, EyeOff, Lock, RefreshCw, AlertTriangle } from 'lucide-react';
 import { db } from '../services/db';
 import { User, UserRole, AuditLog } from '../types';
-import { createSecondaryClient } from '../services/supabase';
 
 const UserManagement: React.FC = () => {
   const [users, setUsers] = React.useState<User[]>([]);
@@ -21,7 +20,6 @@ const UserManagement: React.FC = () => {
     email: '',
     password: '',
     role: UserRole.VIEWER,
-    cnpj: '',
     city: ''
   });
 
@@ -30,9 +28,10 @@ const UserManagement: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [u, l] = await Promise.all([db.getUsers(), db.getLogs()]);
-      setUsers(u);
-      setLogs(l);
+      const u = await db.getUsers();
+      const l = await db.getLogs();
+      setUsers(u || []);
+      setLogs(l || []);
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
     } finally {
@@ -52,6 +51,7 @@ const UserManagement: React.FC = () => {
       if (formData.password.length < 6) throw new Error("A senha deve ter no mínimo 6 caracteres.");
 
       await db.saveUser({ ...formData, active: true });
+      
       await db.addLog({
         userId: 'ADMIN_GLOBAL',
         userName: 'Administrador Global',
@@ -60,17 +60,18 @@ const UserManagement: React.FC = () => {
       });
       
       setIsModalOpen(false);
-      setFormData({ name: '', email: '', password: '', role: UserRole.VIEWER, cnpj: '', city: '' });
+      setFormData({ name: '', email: '', password: '', role: UserRole.VIEWER, city: '' });
       loadData();
     } catch (err: any) {
-      setError(err.message || "Não foi possível criar o usuário.");
+      console.error("Erro capturado no Form:", err);
+      setError(err.message || "Erro desconhecido ao salvar.");
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDeleteUser = async (userId: string, email: string) => {
-    if (!window.confirm(`TEM CERTEZA? Isso removerá permanentemente o acesso de ${email}.`)) return;
+    if (!window.confirm(`TEM CERTEZA? Isso removerá o acesso de ${email}.`)) return;
     
     try {
       await db.deleteUser(userId);
@@ -89,12 +90,10 @@ const UserManagement: React.FC = () => {
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
-    if (newPassword.length < 6) return setError("A senha deve ter no mínimo 6 caracteres.");
+    if (newPassword.length < 6) return setError("Mínimo 6 caracteres.");
 
     setIsSaving(true);
     try {
-      // Nota: No Supabase Auth real, você precisaria de uma Edge Function com service role
-      // Para este protótipo, simulamos a atualização via log e alteração de perfil
       await db.addLog({
         userId: 'ADMIN_GLOBAL',
         userName: 'Administrador Global',
@@ -102,7 +101,7 @@ const UserManagement: React.FC = () => {
         details: `Senha resetada para o usuário ${selectedUser.email}.`
       });
 
-      alert(`Senha para ${selectedUser.email} foi redefinida com sucesso!\nNova Senha: ${newPassword}`);
+      alert(`Ação de troca de senha registrada para ${selectedUser.email}.`);
       setIsPasswordModalOpen(false);
       setNewPassword('');
     } catch (err: any) {
@@ -117,7 +116,7 @@ const UserManagement: React.FC = () => {
     if (!userToUpdate) return;
     const newStatus = !userToUpdate.active;
     try {
-      await db.saveUser({ id, active: newStatus });
+      await db.saveUser({ id, active: newStatus, name: userToUpdate.name, email: userToUpdate.email, role: userToUpdate.role });
       setUsers(users.map(u => u.id === id ? { ...u, active: newStatus } : u));
     } catch (err) {
       alert("Erro ao atualizar status.");
@@ -162,12 +161,16 @@ const UserManagement: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {users.map(u => (
+                {users.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-8 py-10 text-center text-slate-400 font-medium text-xs">Nenhum perfil carregado.</td>
+                  </tr>
+                ) : users.map(u => (
                   <tr key={u.id} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-8 py-5">
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-xs">
-                          {u.name.charAt(0)}
+                          {u.name?.charAt(0) || '?'}
                         </div>
                         <div>
                           <p className="font-black text-slate-900">{u.name}</p>
@@ -183,10 +186,9 @@ const UserManagement: React.FC = () => {
                           <Shield size={10} />
                           {u.role}
                         </span>
-                        {(u.cnpj || u.city) ? (
+                        {u.city ? (
                           <div className="flex flex-wrap gap-2">
-                            {u.cnpj && <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md"><Building2 size={10}/> {u.cnpj}</span>}
-                            {u.city && <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md"><MapPin size={10}/> {u.city}</span>}
+                            <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-md"><MapPin size={10}/> {u.city}</span>
                           </div>
                         ) : (
                           <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest italic">Acesso Global</span>
@@ -206,14 +208,12 @@ const UserManagement: React.FC = () => {
                         <button 
                           onClick={() => { setSelectedUser(u); setIsPasswordModalOpen(true); setError(null); }}
                           className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                          title="Trocar Senha"
                         >
                           <Key size={18} />
                         </button>
                         <button 
                           onClick={() => handleDeleteUser(u.id, u.email)}
                           className="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                          title="Excluir Acesso"
                         >
                           <Trash2 size={18} />
                         </button>
@@ -248,56 +248,13 @@ const UserManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* MODAL: TROCAR SENHA */}
-      {isPasswordModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95">
-            <div className="p-8 border-b border-slate-100">
-              <h2 className="text-xl font-black text-slate-800 tracking-tight">Redefinir Senha</h2>
-              <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Usuário: {selectedUser?.email}</p>
-            </div>
-            <form onSubmit={handleUpdatePassword} className="p-8 space-y-6">
-              {error && (
-                <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl text-rose-800 text-[10px] font-bold flex items-center gap-2">
-                  <AlertCircle size={14} /> {error}
-                </div>
-              )}
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nova Senha Corporativa</label>
-                <div className="relative">
-                  <input 
-                    required 
-                    type={showPassword ? "text" : "password"} 
-                    className="w-full pl-5 pr-12 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none" 
-                    value={newPassword} 
-                    onChange={e => setNewPassword(e.target.value)} 
-                    placeholder="Mín. 6 caracteres"
-                  />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <button type="button" onClick={() => setIsPasswordModalOpen(false)} className="flex-1 py-4 text-[10px] font-black uppercase text-slate-400">Cancelar</button>
-                <button type="submit" disabled={isSaving} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg shadow-indigo-100 flex items-center justify-center gap-2">
-                  {isSaving ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                  Salvar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: NOVO USUÁRIO (Já existente, atualizado para clareza) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-[150] animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="p-8 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-black text-slate-800 tracking-tight">Configurar Novo Acesso</h2>
-                <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Definição de Perfil e Escopo</p>
+                <h2 className="text-xl font-black text-slate-800 tracking-tight">Novo Acesso</h2>
+                <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Definição de Perfil</p>
               </div>
               <button onClick={() => setIsModalOpen(false)} className="p-3 text-slate-400 hover:bg-slate-50 rounded-2xl transition-all">
                 <X size={24} />
@@ -306,31 +263,34 @@ const UserManagement: React.FC = () => {
 
             <form onSubmit={handleCreateUser} className="p-8 space-y-5 max-h-[75vh] overflow-y-auto custom-scrollbar">
               {error && (
-                <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3 text-rose-800 text-[11px] font-bold">
-                  <AlertCircle size={18} className="shrink-0" />
-                  {error}
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-3 text-rose-800 text-[11px] font-bold animate-in shake duration-300">
+                  <AlertTriangle size={18} className="shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-black">O Banco recusou o salvamento:</p>
+                    <p className="opacity-70 font-medium">{error}</p>
+                  </div>
                 </div>
               )}
 
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-1">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Completo</label>
-                  <input required type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none" 
+                  <input required type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all" 
                     value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Maria Souza" />
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail Corporativo</label>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail</label>
                     <input required type="email" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none" 
-                      value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="maria@empresa.com.br" />
+                      value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="maria@empresa.com" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha Inicial</label>
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha</label>
                     <div className="relative">
                       <input required type={showPassword ? "text" : "password"} className="w-full pl-5 pr-12 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none" 
                         value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="Mín. 6 dígitos" />
-                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors">
+                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
                         {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>
                     </div>
@@ -338,11 +298,11 @@ const UserManagement: React.FC = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Papel no Sistema</label>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Papel</label>
                   <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black focus:ring-4 focus:ring-indigo-50" 
                     value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
-                    <option value={UserRole.VIEWER}>Visualizador (Somente Leitura)</option>
-                    <option value={UserRole.ADMIN}>Administrador (Pode Editar/Excluir)</option>
+                    <option value={UserRole.VIEWER}>Visualizador</option>
+                    <option value={UserRole.ADMIN}>Administrador</option>
                   </select>
                 </div>
               </div>
@@ -350,27 +310,23 @@ const UserManagement: React.FC = () => {
               <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Shield size={14} className="text-indigo-600" />
-                  <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Restrição de Escopo (Opcional)</span>
+                  <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Escopo (Filtros)</span>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Filtrar por CNPJ</label>
-                    <input type="text" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold" 
-                      value={formData.cnpj} onChange={e => setFormData({...formData, cnpj: e.target.value})} placeholder="00.000.000/0001-00" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Filtrar por Cidade</label>
-                    <input type="text" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold" 
+                <div className="space-y-1.5">
+                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Cidade (Opcional)</label>
+                  <div className="relative group">
+                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                    <input type="text" className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 outline-none transition-all" 
                       value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} placeholder="Ex: São Paulo" />
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center justify-end gap-4 pt-4">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600">Cancelar</button>
-                <button type="submit" disabled={isSaving} className="px-10 py-4 bg-indigo-600 text-white rounded-[1.25rem] text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-100 flex items-center gap-2 active:scale-95 disabled:bg-slate-300">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-[10px] font-black uppercase text-slate-400">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-10 py-4 bg-indigo-600 text-white rounded-[1.25rem] text-[10px] font-black uppercase shadow-xl shadow-indigo-100 flex items-center gap-2 disabled:bg-slate-300">
                   {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                  Criar Usuário
+                  Criar Acesso
                 </button>
               </div>
             </form>
