@@ -58,32 +58,33 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
   const handleAnalyzeDocument = async () => {
     if (!file) return;
 
+    setErrorMsg(null);
     setIsAnalyzing(true);
     setAnalysisStep('Iniciando análise inteligente...');
     
     try {
       const base64Data = await fileToBase64(file);
-      const ai = new GoogleGenAI({ apiKey: (process.env as any).API_KEY });
+      // Garantindo o uso da chave do ambiente conforme as diretrizes
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
       
-      setAnalysisStep('Processando imagem com OCR...');
+      setAnalysisStep('Processando imagem com OCR avançado...');
       
+      // Upgrade para o modelo Pro para melhor extração de documentos complexos
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3-pro-preview",
         contents: [
           {
             parts: [
               { inlineData: { data: base64Data, mimeType: file.type } },
-              { text: `Você é um especialista em análise de atestados médicos brasileiros para RH. 
-              Extraia as seguintes informações do documento e retorne APENAS um JSON:
-              - patientName: Nome completo do paciente
-              - startDate: Data de início (YYYY-MM-DD)
-              - endDate: Data de término (YYYY-MM-DD)
-              - days: Quantidade de dias de afastamento (inteiro)
-              - cid: Código CID-10 se disponível
-              - doctorName: Nome do médico
-              - crm: CRM do médico e UF (Ex: 12345/SP)
-              - type: Classifique entre 'Doença', 'Acidente', 'Maternidade' ou 'Outros'
-              - observations: Qualquer observação relevante ou restrição médica descrita no atestado` }
+              { text: `Aja como um analista de RH especialista em Saúde Ocupacional. 
+              Extraia os dados deste atestado médico brasileiro. 
+              Regras importantes:
+              1. Datas devem estar no formato YYYY-MM-DD.
+              2. Extraia o CID apenas se estiver explícito.
+              3. Extraia Nome do Paciente, Médico e CRM com UF.
+              4. Em 'observations', inclua recomendações de ergonomia ou repouso mencionadas.
+              
+              Retorne APENAS o JSON conforme o schema solicitado.` }
             ]
           }
         ],
@@ -92,30 +93,37 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              patientName: { type: Type.STRING },
-              startDate: { type: Type.STRING },
-              endDate: { type: Type.STRING },
-              days: { type: Type.INTEGER },
-              cid: { type: Type.STRING },
-              doctorName: { type: Type.STRING },
-              crm: { type: Type.STRING },
-              type: { type: Type.STRING },
-              observations: { type: Type.STRING }
+              patientName: { type: Type.STRING, description: "Nome completo do paciente" },
+              startDate: { type: Type.STRING, description: "Data de início do afastamento YYYY-MM-DD" },
+              endDate: { type: Type.STRING, description: "Data de término do afastamento YYYY-MM-DD" },
+              days: { type: Type.INTEGER, description: "Número de dias de afastamento" },
+              cid: { type: Type.STRING, description: "Código CID-10" },
+              doctorName: { type: Type.STRING, description: "Nome completo do médico" },
+              crm: { type: Type.STRING, description: "CRM e UF do médico" },
+              type: { type: Type.STRING, description: "Classificação: Doença, Acidente, Maternidade ou Outros" },
+              observations: { type: Type.STRING, description: "Notas adicionais do documento" }
             }
           }
         }
       });
 
       setAnalysisStep('Mapeando dados extraídos...');
+      
+      if (!response.text) {
+        throw new Error("A IA não retornou conteúdo textual para análise.");
+      }
+
       const result = JSON.parse(response.text);
+      console.log("IA Analysis Result:", result);
 
       // Tenta encontrar o funcionário pelo nome extraído
       let foundEmployeeId = formData.employeeId;
       if (result.patientName) {
-        const matched = employees.find(e => 
-          e.name.toLowerCase().includes(result.patientName.toLowerCase()) ||
-          result.patientName.toLowerCase().includes(e.name.toLowerCase())
-        );
+        const patientSearch = result.patientName.toLowerCase();
+        const matched = employees.find(e => {
+          const empName = e.name.toLowerCase();
+          return empName.includes(patientSearch) || patientSearch.includes(empName);
+        });
         if (matched) foundEmployeeId = matched.id;
       }
 
@@ -133,12 +141,23 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
       }));
 
       if (result.cid) setLgpdConsent(true);
-      setAnalysisStep('Pronto!');
-      setTimeout(() => setAnalysisStep(''), 2000);
+      setAnalysisStep('Análise concluída com sucesso!');
+      setTimeout(() => setAnalysisStep(''), 3000);
 
     } catch (err: any) {
-      console.error("Erro na análise IA:", err);
-      setErrorMsg("Não foi possível analisar este documento automaticamente. Verifique se a imagem está legível.");
+      console.error("ERRO CRÍTICO NA ANÁLISE IA:", err);
+      // Fornece um erro mais amigável baseado no tipo de falha
+      let userFriendlyError = "Não foi possível analisar este documento automaticamente.";
+      
+      if (err.message?.includes("API_KEY")) {
+        userFriendlyError = "Erro de autenticação: Chave de API não configurada corretamente.";
+      } else if (err.message?.includes("JSON")) {
+        userFriendlyError = "Erro de processamento: O documento possui formato complexo demais para extração automática.";
+      } else if (err.status === 429) {
+        userFriendlyError = "Limite de requisições excedido. Tente novamente em alguns segundos.";
+      }
+
+      setErrorMsg(userFriendlyError);
     } finally {
       setIsAnalyzing(false);
     }
@@ -198,11 +217,12 @@ const CertificateForm: React.FC<CertificateFormProps> = ({ employees, onClose, o
               <div className="p-5 bg-rose-50 border border-rose-100 rounded-[1.5rem] space-y-3 animate-in slide-in-from-top-4">
                 <div className="flex items-center gap-2 text-rose-600">
                   <AlertTriangle size={18} />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Erro</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Erro de Análise</span>
                 </div>
                 <p className="text-[10px] font-bold text-rose-800 leading-tight">
                   {errorMsg}
                 </p>
+                <p className="text-[9px] text-rose-400 font-medium italic">Tente reenviar a foto com melhor iluminação ou preencha os dados manualmente.</p>
               </div>
             )}
 
