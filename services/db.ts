@@ -1,14 +1,6 @@
 
-import { supabase, isConfigured } from './supabase';
+import { supabase, createSecondaryClient, isConfigured } from './supabase';
 import { Employee, MedicalCertificate, User, UserRole, AuditLog } from '../types';
-
-// Helper para gerar um ID compatível com UUID v4
-const generateUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-};
 
 export const db = {
   checkConnection: async (): Promise<boolean> => {
@@ -66,11 +58,32 @@ export const db = {
     } catch (e) { return []; }
   },
 
-  saveUser: async (user: Partial<User>) => {
-    // Se o usuário já tem um ID que NÃO começa com 'user-', é uma atualização
-    const isUpdate = user.id && !user.id.startsWith('user-');
-    const finalId = isUpdate ? user.id : generateUUID();
-    
+  saveUser: async (user: Partial<User> & { password?: string }) => {
+    const isNew = !user.id || user.id.startsWith('user-');
+    let finalId = user.id;
+
+    if (isNew) {
+      if (!user.email || !user.password) throw new Error("E-mail e senha são obrigatórios para novos usuários.");
+      
+      // 1. Cria a conta no Supabase Auth usando o cliente secundário (para não deslogar o admin)
+      const secondaryClient = createSecondaryClient();
+      const { data: authData, error: authError } = await secondaryClient.auth.signUp({
+        email: user.email,
+        password: user.password,
+      });
+
+      if (authError) {
+        if (authError.message.includes("already registered")) {
+          throw new Error("Este e-mail já possui uma conta de acesso no sistema.");
+        }
+        throw new Error(`Erro ao criar conta de acesso: ${authError.message}`);
+      }
+
+      if (!authData.user) throw new Error("Falha ao gerar ID de autenticação.");
+      finalId = authData.user.id;
+    }
+
+    // 2. Salva ou atualiza o Perfil (profiles) com o ID correto do Auth
     const payload = {
       id: finalId,
       name: user.name,
@@ -81,18 +94,14 @@ export const db = {
       city: user.city || null
     };
 
-    // Usamos upsert para simplificar: se o ID ou Email existir, ele atualiza, senão insere.
     const { data, error } = await supabase
       .from('profiles')
-      .upsert([payload], { onConflict: 'email' })
+      .upsert([payload], { onConflict: 'id' })
       .select();
     
     if (error) {
-      console.error("Erro detalhado do banco:", error);
-      if (error.message.includes("foreign key constraint")) {
-        throw new Error("Erro de Vínculo: Você precisa executar o comando SQL para remover a restrição 'profiles_id_fkey' no painel do Supabase.");
-      }
-      throw new Error(`Erro ao salvar: ${error.message}`);
+      console.error("Erro no Perfil:", error);
+      throw new Error(`Erro ao salvar perfil: ${error.message}`);
     }
     
     return data?.[0] as User;

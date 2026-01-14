@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { UserPlus, Shield, Key, Trash2, CheckCircle, XCircle, Activity, Loader2, X, Building2, MapPin, Save, AlertCircle } from 'lucide-react';
+import { UserPlus, Shield, Key, Trash2, CheckCircle, XCircle, Activity, Loader2, X, Building2, MapPin, Save, AlertCircle, Eye, EyeOff, Lock } from 'lucide-react';
 import { db } from '../services/db';
 import { User, UserRole, AuditLog } from '../types';
 
@@ -10,11 +10,13 @@ const UserManagement: React.FC = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const [formData, setFormData] = React.useState({
     name: '',
     email: '',
+    password: '',
     role: UserRole.VIEWER,
     cnpj: '',
     city: ''
@@ -42,23 +44,24 @@ const UserManagement: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
-      const newUser = {
+      if (formData.password.length < 6) {
+        throw new Error("A senha deve ter no mínimo 6 caracteres.");
+      }
+
+      await db.saveUser({
         ...formData,
-        id: `user-${Date.now()}`, // O db.ts vai converter isso para UUID se necessário
         active: true,
-      };
-      
-      await db.saveUser(newUser as any);
+      });
       
       await db.addLog({
         userId: 'ADMIN',
         userName: 'Administrador',
         action: 'USER_CREATE',
-        details: `Novo usuário ${formData.email} criado. Perfil: ${formData.role}. Escopo: ${formData.cnpj || formData.city || 'Global'}`
+        details: `Novo acesso criado para ${formData.email}. Perfil: ${formData.role}. Escopo: ${formData.cnpj || formData.city || 'Global'}`
       });
       
       setIsModalOpen(false);
-      setFormData({ name: '', email: '', role: UserRole.VIEWER, cnpj: '', city: '' });
+      setFormData({ name: '', email: '', password: '', role: UserRole.VIEWER, cnpj: '', city: '' });
       loadData();
     } catch (err: any) {
       setError(err.message || "Não foi possível criar o usuário.");
@@ -208,7 +211,7 @@ const UserManagement: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="p-8 space-y-6">
+            <form onSubmit={handleCreateUser} className="p-8 space-y-5 max-h-[75vh] overflow-y-auto custom-scrollbar">
               {error && (
                 <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3 text-rose-800 text-[11px] font-bold animate-in slide-in-from-top-2">
                   <AlertCircle size={18} className="shrink-0" />
@@ -216,18 +219,32 @@ const UserManagement: React.FC = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-5">
-                <div className="space-y-1.5">
+              <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-1">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Completo</label>
                   <input required type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none" 
                     value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Maria Souza" />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail Corporativo</label>
-                  <input required type="email" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none" 
-                    value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="maria@empresa.com.br" />
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail Corporativo</label>
+                    <input required type="email" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none" 
+                      value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="maria@empresa.com.br" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha Inicial</label>
+                    <div className="relative">
+                      <input required type={showPassword ? "text" : "password"} className="w-full pl-5 pr-12 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-50 focus:border-indigo-300 outline-none" 
+                        value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="Mín. 6 dígitos" />
+                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors">
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1.5">
+
+                <div className="space-y-1">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Papel no Sistema</label>
                   <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black focus:ring-4 focus:ring-indigo-50" 
                     value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
